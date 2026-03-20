@@ -181,18 +181,27 @@ RESEARCH_SYSTEM_PROMPT = """\
 
 
 def deep_research(brief: str) -> str:
-    """Perplexity deep-research: 5軸で徹底調査"""
-    response = perplexity_client.chat.completions.create(
-        model="sonar-deep-research",
-        messages=[
-            {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"以下のクライアント企画書を分析してください:\n\n{brief}",
-            },
-        ],
-    )
-    return response.choices[0].message.content
+    """Perplexity research: deep-research → sonar フォールバック"""
+    for model in ("sonar-deep-research", "sonar"):
+        try:
+            response = perplexity_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"以下のクライアント企画書を分析してください:\n\n{brief}",
+                    },
+                ],
+            )
+            result = response.choices[0].message.content
+            prefix = f"[model: {model}]\n\n" if model != "sonar-deep-research" else ""
+            return prefix + result
+        except Exception as e:
+            if model == "sonar":
+                raise  # 最後のモデルなら例外を投げる
+            continue  # deep-researchが失敗したらsonarへ
+    return ""
 
 
 # ========================================================================
