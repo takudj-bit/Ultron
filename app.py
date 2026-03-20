@@ -78,26 +78,33 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 def generate_title(brief: str) -> str:
-    """Claude Haiku — タイトル生成"""
+    """Claude Haiku — タイトル生成（アーティスト名 + 一言）"""
     cleaned = re.sub(r'https?://\S+', '', brief)
     cleaned = re.sub(r'[_*#\-=]{2,}', '', cleaned)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()[:300]
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()[:500]
     try:
         response = claude_client.messages.create(
             model="claude-haiku-4-20250414",
-            max_tokens=30,
+            max_tokens=40,
             messages=[{
                 "role": "user",
                 "content": (
-                    "音楽企画書の内容から、曲のプロジェクト名を考えて。\n"
-                    "ルール:\n- 日本語10文字以内\n- タイトルのみ出力（説明不要）\n"
-                    "- 「」や記号は付けない\n\n"
+                    "音楽企画書からプロジェクト名を作って。\n\n"
+                    "ルール:\n"
+                    "- 企画書に登場するアーティスト名・IP名・作品名を抽出する\n"
+                    "- フォーマット: 「アーティスト名 × 一言」または「アーティスト名 + 一言」\n"
+                    "- 例: 「m-flo × ダンダダン」「YOASOBI × 夜の誓い」「Ado × 反逆アンセム」\n"
+                    "- アーティストが複数いたら主要なものを使う\n"
+                    "- 一言は企画の特徴を表す2〜5文字\n"
+                    "- 全体で20文字以内\n"
+                    "- タイトルのみ出力（説明不要）\n"
+                    "- 「」や『』で囲まない\n\n"
                     f"{cleaned}"
                 ),
             }],
         )
         title = response.content[0].text.strip().strip("「」『』\"")
-        return title[:15] if title else brief[:40].replace("\n", " ")
+        return title[:25] if title else brief[:40].replace("\n", " ")
     except Exception:
         return brief[:40].replace("\n", " ")
 
