@@ -225,6 +225,7 @@ body.resizing .resize-handle{pointer-events:auto}
 }
 .dir-card:hover{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
 .dir-card.selected{border-color:var(--green);box-shadow:0 0 12px rgba(34,197,94,.2)}
+.dir-card.new-card{border-left:3px solid var(--orange)}
 .dir-card-num{
   position:absolute;top:-8px;left:12px;
   background:var(--accent);color:#fff;font-size:.65rem;font-weight:700;
@@ -410,15 +411,20 @@ function renderDirections(directions) {
   directionsContainer.innerHTML = '';
   directions.forEach((d, i) => {
     const card = document.createElement('div');
-    card.className = 'dir-card';
+    const isNew = (d.title || '').includes('★');
+    card.className = 'dir-card' + (isNew ? ' new-card' : '');
     const moods = (d.mood || '').split(/[,、]/).map(m => m.trim()).filter(Boolean);
     const moodHtml = moods.map(m => `<span class="mood-tag">${esc(m)}</span>`).join('');
+    const bpm = d.bpm_range ? `<div><strong>🎹 BPM:</strong> ${esc(d.bpm_range)}</div>` : '';
+    const vocal = d.vocal_direction ? `<div><strong>🎤 Vocal:</strong> ${esc(d.vocal_direction)}</div>` : '';
     card.innerHTML = `
-      <div class="dir-card-num">候補 ${i+1}</div>
+      <div class="dir-card-num">候補 ${i+1}${isNew ? ' — NEW' : ''}</div>
       <div class="dir-card-title">${esc(d.title || '')}</div>
       <div class="dir-card-concept">${esc(d.concept || '')}</div>
       <div class="dir-card-meta">
         <div><strong>🎵 参考:</strong> ${esc(d.reference || '')}</div>
+        ${bpm}
+        ${vocal}
         <div><strong>⚡ フック:</strong> ${esc(d.hook || '')}</div>
         <div><strong>⚠️ リスク:</strong> ${esc(d.risk || '')}</div>
       </div>
@@ -500,7 +506,12 @@ function clearFile() { selectedFile = null; fileBadge.classList.remove('show'); 
 fileRemove.addEventListener('click', clearFile);
 
 // --- Send ---
-chatInput.addEventListener('keydown', e => { if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()} });
+let isComposing = false;
+chatInput.addEventListener('compositionstart', () => { isComposing = true; });
+chatInput.addEventListener('compositionend', () => { isComposing = false; });
+chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !isComposing) { e.preventDefault(); send(); }
+});
 sendBtn.addEventListener('click', send);
 
 async function send() {
@@ -515,7 +526,18 @@ async function send() {
   chatInput.value = ''; chatInput.style.height = 'auto';
   isGenerating = true; sendBtn.disabled = true;
 
-  // Step ①→②→③
+  if (activeId && currentStep >= 3) {
+    // --- Refine: 方向性への反論 ---
+    await sendRefine(text);
+  } else {
+    // --- New: Step ①→②→③ ---
+    await sendGenerate(text, hasPdf);
+  }
+
+  isGenerating = false; sendBtn.disabled = false;
+}
+
+async function sendGenerate(text, hasPdf) {
   updateStepIndicator(1);
   const thinkEl = addThinking('① 企画書を受付中...');
 
@@ -524,7 +546,6 @@ async function send() {
   clearFile();
 
   try {
-    // Update thinking as steps progress
     setTimeout(() => {
       if (isGenerating) {
         updateStepIndicator(2);
@@ -540,31 +561,57 @@ async function send() {
     if (!res.ok) {
       addMsg('ai', 'エラー: ' + (data.error || '生成に失敗'));
       updateStepIndicator(0);
-      isGenerating = false; sendBtn.disabled = false;
       return;
     }
 
     updateStepIndicator(3);
     activeId = data.id;
-
-    // Show research in chat (collapsible)
     addResearchMsg(data.research);
-
-    // Show directions in chat
-    addDirectionsMsg(data.directions);
-
-    // Update right panel
+    addDirectionsMsg(data.directions, data.thinking || '');
     renderDirections(data.directions);
     renderResearchInPanel(data.research);
-
+    updatePlaceholder();
     loadHistory();
   } catch (e) {
     thinkEl.remove();
     addMsg('ai', '通信エラー: ' + e.message);
     updateStepIndicator(0);
   }
+}
 
-  isGenerating = false; sendBtn.disabled = false;
+async function sendRefine(feedback) {
+  const thinkEl = addThinking('方向性をリファイン中...');
+  clearFile();
+
+  try {
+    const res = await fetch('/api/refine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_id: activeId, feedback }),
+    });
+    const data = await res.json();
+    thinkEl.remove();
+
+    if (!res.ok) {
+      addMsg('ai', 'エラー: ' + (data.error || 'リファインに失敗'));
+      return;
+    }
+
+    // Show refined directions
+    addRefineResultMsg(data.directions, data.thinking || '');
+    renderDirections(data.directions);
+  } catch (e) {
+    thinkEl.remove();
+    addMsg('ai', '通信エラー: ' + e.message);
+  }
+}
+
+function updatePlaceholder() {
+  if (activeId && currentStep >= 3) {
+    chatInput.placeholder = '方向性への反論・フィードバックを入力...';
+  } else {
+    chatInput.placeholder = '企画内容を入力、またはファイルをドロップ...';
+  }
 }
 
 // --- Messages ---
@@ -597,19 +644,67 @@ function addResearchMsg(research) {
   chat.appendChild(el); scrollBottom();
 }
 
-function addDirectionsMsg(directions) {
+function addDirectionsMsg(directions, thinking) {
   const el = document.createElement('div');
   el.className = 'msg ai';
-  let html = '<div class="msg-label">ULTRON — Step ③</div><div class="msg-body">';
+  let html = '<div class="msg-label">ULTRON — Step ③ (Claude extended thinking)</div><div class="msg-body">';
+
+  // Thinking section (collapsible)
+  if (thinking) {
+    html += `<div class="msg-section">
+      <div class="section-toggle" onclick="toggleSection(this)">
+        <span class="arrow">&#9654;</span> 🧠 思考過程
+      </div>
+      <div class="section-content thinking-c"></div>
+    </div>`;
+  }
+
   html += '<div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0 8px">🎯 方向性候補 ' + directions.length + '案 → 右パネルに表示中</div>';
   directions.forEach((d, i) => {
+    const bpm = d.bpm_range ? ` <span style="color:var(--text-dim);font-size:.7rem">[${esc(d.bpm_range)} BPM]</span>` : '';
     html += `<div style="margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:6px;font-size:.8rem">
-      <strong style="color:var(--accent)">候補${i+1}:</strong> ${esc(d.title || '')}
-      <div style="color:var(--text-dim);font-size:.75rem;margin-top:2px">${esc((d.concept || '').slice(0, 80))}${(d.concept||'').length > 80 ? '...' : ''}</div>
+      <strong style="color:var(--accent)">候補${i+1}:</strong> ${esc(d.title || '')}${bpm}
+      <div style="color:var(--text-dim);font-size:.75rem;margin-top:2px">${esc((d.concept || '').slice(0, 120))}${(d.concept||'').length > 120 ? '...' : ''}</div>
     </div>`;
   });
   html += '</div>';
   el.innerHTML = html;
+  if (thinking) {
+    el.querySelector('.thinking-c').textContent = thinking;
+  }
+  chat.appendChild(el); scrollBottom();
+}
+
+function addRefineResultMsg(directions, thinking) {
+  const el = document.createElement('div');
+  el.className = 'msg ai';
+  let html = '<div class="msg-label">ULTRON — リファイン (Claude extended thinking)</div><div class="msg-body">';
+
+  // Thinking section
+  if (thinking) {
+    html += `<div class="msg-section">
+      <div class="section-toggle" onclick="toggleSection(this)">
+        <span class="arrow">&#9654;</span> 🧠 思考過程
+      </div>
+      <div class="section-content thinking-c"></div>
+    </div>`;
+  }
+
+  html += '<div style="font-size:.78rem;font-weight:600;color:var(--green);padding:4px 0 8px">🔄 方向性を更新しました（' + directions.length + '案）→ 右パネル</div>';
+  directions.forEach((d, i) => {
+    const isNew = (d.title || '').includes('★');
+    const badge = isNew ? ' <span style="color:var(--orange);font-size:.7rem">NEW</span>' : '';
+    const bpm = d.bpm_range ? ` <span style="color:var(--text-dim);font-size:.7rem">[${esc(d.bpm_range)} BPM]</span>` : '';
+    html += `<div style="margin-bottom:6px;padding:6px 10px;background:var(--bg);border-radius:6px;font-size:.8rem;${isNew ? 'border-left:2px solid var(--orange)' : ''}">
+      <strong style="color:var(--accent)">候補${i+1}:</strong> ${esc(d.title || '')}${badge}${bpm}
+      <div style="color:var(--text-dim);font-size:.75rem;margin-top:2px">${esc((d.concept || '').slice(0, 120))}${(d.concept||'').length > 120 ? '...' : ''}</div>
+    </div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+  if (thinking) {
+    el.querySelector('.thinking-c').textContent = thinking;
+  }
   chat.appendChild(el); scrollBottom();
 }
 
@@ -653,6 +748,7 @@ $('newBtn').addEventListener('click', () => {
   chat.innerHTML = ''; chat.appendChild(welcome); welcome.style.display = 'flex';
   document.querySelectorAll('.hi').forEach(el => el.classList.remove('active'));
   sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show');
+  updatePlaceholder();
 });
 
 async function loadHistory() {
@@ -702,6 +798,7 @@ async function selectHistory(id) {
 
     if (!dirs.length && !data.research) clearRightPanel();
 
+    updatePlaceholder();
     document.querySelectorAll('.hi').forEach(el => el.classList.toggle('active', el.dataset.id === id));
     sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show');
     scrollBottom();
