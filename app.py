@@ -181,7 +181,8 @@ RESEARCH_SYSTEM_PROMPT = """\
 
 
 def deep_research(brief: str) -> str:
-    """Perplexity research: deep-research → sonar フォールバック"""
+    """Perplexity research: deep-research → sonar → Claude フォールバック"""
+    # Try Perplexity models first
     for model in ("sonar-deep-research", "sonar"):
         try:
             response = perplexity_client.chat.completions.create(
@@ -197,11 +198,29 @@ def deep_research(brief: str) -> str:
             result = response.choices[0].message.content
             prefix = f"[model: {model}]\n\n" if model != "sonar-deep-research" else ""
             return prefix + result
-        except Exception as e:
-            if model == "sonar":
-                raise  # 最後のモデルなら例外を投げる
-            continue  # deep-researchが失敗したらsonarへ
-    return ""
+        except Exception:
+            continue
+
+    # Fallback: Claude (no web search, but deep analysis from training data)
+    try:
+        response = claude_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=8000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"{RESEARCH_SYSTEM_PROMPT}\n\n"
+                        "※注意: Web検索は使えません。あなたの知識ベースに基づいて分析してください。"
+                        "最新データが不明な場合はその旨を明記し、わかる範囲で回答してください。\n\n"
+                        f"以下のクライアント企画書を分析してください:\n\n{brief}"
+                    ),
+                },
+            ],
+        )
+        return "[model: claude-sonnet (Perplexity quota exceeded)]\n\n" + response.content[0].text
+    except Exception as e:
+        raise RuntimeError(f"全リサーチモデルが失敗: {str(e)}")
 
 
 # ========================================================================
