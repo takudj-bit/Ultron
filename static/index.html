@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ULTRON</title>
+<title>ULTRON v2</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#0c0c0f;--surface:#16161a;--surface2:#1e1e24;
   --border:#2a2a32;--text:#e0e0e6;--text-dim:#888894;
   --accent:#8b5cf6;--accent-glow:#8b5cf640;
-  --green:#22c55e;--red:#ef4444;
+  --green:#22c55e;--red:#ef4444;--orange:#f59e0b;--blue:#3b82f6;
   --sidebar-w:240px;
 }
 html,body{height:100%}
@@ -38,8 +38,7 @@ body.resizing .resize-handle{pointer-events:auto}
 /* ===== History Sidebar ===== */
 .sidebar{
   width:var(--sidebar-w);min-width:140px;max-width:450px;height:100%;
-  background:var(--surface);flex-shrink:0;
-  display:flex;flex-direction:column;
+  background:var(--surface);flex-shrink:0;display:flex;flex-direction:column;
 }
 .sidebar-header{
   padding:14px 12px 10px;border-bottom:1px solid var(--border);
@@ -59,6 +58,10 @@ body.resizing .resize-handle{pointer-events:auto}
 .hi.active{background:var(--surface2);border-left-color:var(--accent)}
 .hi .t{font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
 .hi .d{font-size:.65rem;color:var(--text-dim)}
+.hi .step-badge{
+  display:inline-block;font-size:.55rem;padding:1px 4px;border-radius:3px;
+  background:var(--accent);color:#fff;margin-left:4px;vertical-align:middle;
+}
 .hi .x{
   position:absolute;right:6px;top:50%;transform:translateY(-50%);
   display:none;background:none;border:none;color:var(--red);cursor:pointer;font-size:.8rem;padding:2px;
@@ -67,20 +70,36 @@ body.resizing .resize-handle{pointer-events:auto}
 .history-empty{padding:20px 12px;text-align:center;color:var(--text-dim);font-size:.75rem}
 
 /* ===== Center: Chat Column ===== */
-.center{
-  flex:1;min-width:280px;display:flex;flex-direction:column;height:100%;
-}
+.center{flex:1;min-width:280px;display:flex;flex-direction:column;height:100%}
 .topbar{
   padding:12px 16px;border-bottom:1px solid var(--border);
-  background:var(--surface);text-align:center;flex-shrink:0;
+  background:var(--surface);flex-shrink:0;
 }
+.topbar-inner{display:flex;align-items:center;justify-content:center;gap:12px}
 .topbar h1{font-size:1.1rem;font-weight:700;letter-spacing:.12em;color:var(--accent)}
 .topbar span{font-size:.7rem;color:var(--text-dim)}
 
-.chat{
-  flex:1;overflow-y:auto;padding:16px 16px 8px;
-  display:flex;flex-direction:column;gap:12px;
+/* Step indicator */
+.steps-bar{
+  display:flex;justify-content:center;gap:0;padding:6px 16px 2px;
+  font-size:.65rem;
 }
+.step-item{
+  display:flex;align-items:center;gap:4px;color:var(--text-dim);transition:.2s;
+}
+.step-item .num{
+  width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:.6rem;border:1.5px solid var(--border);transition:.2s;
+}
+.step-item.done .num{background:var(--green);border-color:var(--green);color:#fff}
+.step-item.active .num{background:var(--accent);border-color:var(--accent);color:#fff}
+.step-item.done{color:var(--green)}
+.step-item.active{color:var(--accent)}
+.step-arrow{color:var(--border);font-size:.6rem;margin:0 3px}
+.step-item .label{display:none}
+@media(min-width:600px){.step-item .label{display:inline}}
+
+.chat{flex:1;overflow-y:auto;padding:16px 16px 8px;display:flex;flex-direction:column;gap:12px}
 .chat::-webkit-scrollbar{width:4px}
 .chat::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 
@@ -89,7 +108,16 @@ body.resizing .resize-handle{pointer-events:auto}
   flex:1;text-align:center;padding:32px 16px;color:var(--text-dim);
 }
 .welcome h2{font-size:1.2rem;color:var(--accent);letter-spacing:.1em;margin-bottom:6px}
-.welcome p{font-size:.82rem;line-height:1.6;max-width:360px}
+.welcome p{font-size:.82rem;line-height:1.6;max-width:400px}
+.welcome .steps-preview{
+  margin-top:20px;text-align:left;font-size:.78rem;line-height:2;
+}
+.welcome .steps-preview .sp-num{
+  display:inline-block;width:20px;height:20px;border-radius:50%;text-align:center;line-height:20px;
+  font-weight:700;font-size:.65rem;margin-right:6px;
+}
+.welcome .sp-active .sp-num{background:var(--accent);color:#fff}
+.welcome .sp-future .sp-num{background:var(--border);color:var(--text-dim)}
 
 /* messages */
 .msg{max-width:100%;animation:fadeIn .2s ease}
@@ -134,10 +162,7 @@ body.resizing .resize-handle{pointer-events:auto}
 .thinking-text{font-size:.75rem;color:var(--text-dim);margin-left:6px;align-self:center}
 
 /* input bar */
-.input-bar{
-  flex-shrink:0;padding:10px 14px;
-  border-top:1px solid var(--border);background:var(--surface);
-}
+.input-bar{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface)}
 .input-bar-inner{display:flex;gap:6px;align-items:flex-end}
 .input-wrap{
   flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;transition:border-color .2s;
@@ -163,50 +188,27 @@ body.resizing .resize-handle{pointer-events:auto}
 .send-btn:disabled{opacity:.4;cursor:not-allowed;filter:none}
 .input-hint{font-size:.65rem;color:var(--text-dim);margin-top:3px;padding:0 2px}
 
-/* ===== Right Panel ===== */
+/* ===== Right Panel — Directions ===== */
 .right-panel{
   width:420px;min-width:250px;max-width:700px;height:100%;
   display:flex;flex-direction:column;background:var(--bg);flex-shrink:0;
 }
 .rp-header{
-  padding:0;background:var(--surface);flex-shrink:0;
+  padding:14px 16px 10px;background:var(--surface);flex-shrink:0;
   border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
 }
-.rp-tabs{display:flex}
-.rp-tab{
-  flex:1;padding:12px 14px;text-align:center;font-size:.8rem;font-weight:600;
-  color:var(--text-dim);cursor:pointer;transition:.15s;
-  border-bottom:2px solid transparent;letter-spacing:.04em;
-}
-.rp-tab:hover{color:var(--text);background:var(--surface2)}
-.rp-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.rp-actions{
-  display:flex;justify-content:space-between;align-items:center;padding:6px 14px;
-  border-bottom:1px solid var(--border);background:var(--surface);gap:8px;
-}
-.version-select{
-  padding:3px 8px;font-size:.72rem;
-  background:var(--bg);color:var(--text);
-  border:1px solid var(--border);border-radius:4px;
-  outline:none;cursor:pointer;font-family:inherit;
-}
-.version-select:focus{border-color:var(--accent)}
-.version-select option{background:var(--surface);color:var(--text)}
-.version-info{font-size:.65rem;color:var(--text-dim);flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lp-btn{
-  padding:4px 10px;font-size:.7rem;background:transparent;
+.rp-header h3{font-size:.85rem;font-weight:700;color:var(--accent);letter-spacing:.06em}
+.rp-header .copy-all{
+  padding:4px 10px;font-size:.68rem;background:transparent;
   color:var(--text-dim);border:1px solid var(--border);border-radius:4px;
   cursor:pointer;transition:.12s;
 }
-.lp-btn:hover{border-color:var(--accent);color:var(--accent)}
-.lp-btn.copied{border-color:var(--green);color:var(--green)}
+.rp-header .copy-all:hover{border-color:var(--accent);color:var(--accent)}
 
-.rp-body{flex:1;overflow-y:auto;padding:20px;position:relative}
+.rp-body{flex:1;overflow-y:auto;padding:16px}
 .rp-body::-webkit-scrollbar{width:4px}
 .rp-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-
-.rp-content{display:none;font-size:.9rem;line-height:1.9;white-space:pre-wrap;word-wrap:break-word;color:var(--text)}
-.rp-content.active{display:block}
 
 .rp-empty{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -215,14 +217,50 @@ body.resizing .resize-handle{pointer-events:auto}
 .rp-empty .icon{font-size:2.5rem;margin-bottom:10px;opacity:.4}
 .rp-empty p{font-size:.82rem;line-height:1.5}
 
-/* version badge (legacy, kept for compat) */
-.version-badge{display:none}
-
-/* lyrics update flash */
-@keyframes lyricsFlash{
-  0%{background:rgba(139,92,246,.08)}100%{background:transparent}
+/* Direction cards */
+.dir-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:16px;margin-bottom:12px;transition:.2s;position:relative;
+  cursor:default;
 }
-.lyrics-flash{animation:lyricsFlash .8s ease}
+.dir-card:hover{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.dir-card.selected{border-color:var(--green);box-shadow:0 0 12px rgba(34,197,94,.2)}
+.dir-card-num{
+  position:absolute;top:-8px;left:12px;
+  background:var(--accent);color:#fff;font-size:.65rem;font-weight:700;
+  padding:2px 8px;border-radius:10px;letter-spacing:.04em;
+}
+.dir-card-title{font-size:.95rem;font-weight:700;margin:6px 0 8px;color:var(--text)}
+.dir-card-concept{font-size:.82rem;line-height:1.6;color:var(--text);margin-bottom:10px}
+.dir-card-meta{font-size:.72rem;color:var(--text-dim);line-height:1.8}
+.dir-card-meta strong{color:var(--text);font-weight:600}
+.dir-card-mood{
+  display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;
+}
+.mood-tag{
+  padding:2px 8px;font-size:.65rem;border-radius:10px;
+  background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);
+}
+
+/* Coming soon overlay for step 4-5 */
+.coming-soon{
+  margin-top:16px;padding:16px;border:1px dashed var(--border);border-radius:10px;
+  text-align:center;color:var(--text-dim);font-size:.78rem;line-height:1.6;
+}
+.coming-soon strong{color:var(--orange)}
+
+/* Research panel (collapsible in right panel) */
+.research-section{
+  margin-top:16px;padding-top:16px;border-top:1px solid var(--border);
+}
+.research-toggle{
+  display:flex;align-items:center;gap:6px;cursor:pointer;
+  font-size:.78rem;font-weight:600;color:var(--text-dim);
+  user-select:none;padding:4px 0;
+}
+.research-toggle:hover{color:var(--accent)}
+.research-body{display:none;margin-top:10px;font-size:.8rem;line-height:1.7;white-space:pre-wrap;color:var(--text-dim)}
+.research-body.open{display:block}
 
 /* mobile */
 .sidebar-toggle{
@@ -237,10 +275,7 @@ body.resizing .resize-handle{pointer-events:auto}
 }
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:98}
 @media(max-width:1024px){
-  .right-panel{
-    position:fixed;right:-420px;top:0;z-index:99;transition:right .25s;height:100%;
-    border-left:1px solid var(--border);
-  }
+  .right-panel{position:fixed;right:-420px;top:0;z-index:99;transition:right .25s;height:100%;border-left:1px solid var(--border)}
   .right-panel.open{right:0}
   .lyrics-toggle{display:block}
 }
@@ -278,13 +313,33 @@ body.resizing .resize-handle{pointer-events:auto}
 <!-- Center: Chat -->
 <div class="center">
   <div class="topbar">
-    <h1>ULTRON</h1>
-    <span>トレンドリサーチ &times; AI作詞</span>
+    <div class="topbar-inner">
+      <h1>ULTRON</h1>
+      <span>5-Step 制作ワークフロー</span>
+    </div>
+    <div class="steps-bar" id="stepsBar">
+      <div class="step-item" data-step="1"><span class="num">1</span><span class="label">企画書</span></div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" data-step="2"><span class="num">2</span><span class="label">リサーチ</span></div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" data-step="3"><span class="num">3</span><span class="label">方向性</span></div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" data-step="4"><span class="num">4</span><span class="label">選択</span></div>
+      <span class="step-arrow">›</span>
+      <div class="step-item" data-step="5"><span class="num">5</span><span class="label">歌詞</span></div>
+    </div>
   </div>
   <div class="chat" id="chat">
     <div class="welcome" id="welcome">
-      <h2>ULTRON</h2>
-      <p>企画書を入力またはPDF/TXTをドロップ。<br>トレンドリサーチ＋歌詞ドラフトを生成します。<br><br>生成後はフィードバックを送って修正を重ねられます。</p>
+      <h2>ULTRON v2</h2>
+      <p>企画書を入力 → AIがリサーチ → 曲の方向性を提案</p>
+      <div class="steps-preview">
+        <div class="sp-active"><span class="sp-num">①</span>クライアント企画書インプット</div>
+        <div class="sp-active"><span class="sp-num">②</span>Perplexity deep-research で分析</div>
+        <div class="sp-active"><span class="sp-num">③</span>曲の方向性候補を3〜5個提示</div>
+        <div class="sp-future"><span class="sp-num">④</span>方向性を選択 <span style="color:var(--orange)">(coming soon)</span></div>
+        <div class="sp-future"><span class="sp-num">⑤</span>Sunoプロンプト＋歌詞生成 <span style="color:var(--orange)">(coming soon)</span></div>
+      </div>
     </div>
   </div>
   <div class="input-bar">
@@ -300,49 +355,25 @@ body.resizing .resize-handle{pointer-events:auto}
       <button class="send-btn" id="sendBtn">送信</button>
     </div>
     <div class="input-hint">Enter 送信 / Shift+Enter 改行 / PDF・TXT ドロップ対応</div>
-    <input type="file" id="fileInput" accept=".pdf,.txt,.text" style="display:none">
   </div>
 </div>
 
-<!-- Resize handle: chat | lyrics -->
+<!-- Resize handle: chat | right panel -->
 <div class="resize-handle" id="resizeRight"></div>
 
-<!-- Right Panel -->
-<div class="right-panel" id="lyricsPanel">
+<!-- Right Panel — Directions -->
+<div class="right-panel" id="rightPanel">
   <div class="rp-header">
-    <div class="rp-tabs">
-      <div class="rp-tab active" data-tab="lyrics">&#9835; 歌詞</div>
-      <div class="rp-tab" data-tab="research">&#128270; リサーチ</div>
-    </div>
+    <h3>🎯 方向性候補</h3>
+    <button class="copy-all" id="copyAll">全てコピー</button>
   </div>
-  <div class="rp-actions">
-    <select class="version-select" id="versionSelect" title="バージョン切り替え">
-      <option value="v1">v1 - 初回生成</option>
-    </select>
-    <span class="version-info" id="versionInfo"></span>
-    <button class="lp-btn" id="lpCopy">コピー</button>
-  </div>
-  <div class="rp-body">
+  <div class="rp-body" id="rpBody">
     <div class="rp-empty" id="rpEmpty">
-      <div class="icon">&#9835;</div>
-      <p>歌詞・リサーチがここに表示されます<br>チャットで企画書を送信してください</p>
+      <div class="icon">🎯</div>
+      <p>方向性候補がここに表示されます<br>企画書を送信してください</p>
     </div>
-    <!-- Lyrics tab -->
-    <div class="rp-content" id="rpLyrics" data-tab="lyrics">
-      <div class="version-badge" id="versionBadge">v1 - 初回生成</div>
-      <div id="lyricsDisplay"></div>
-    </div>
-    <!-- Research tab -->
-    <div class="rp-content" id="rpResearch" data-tab="research">
-      <div style="margin-bottom:16px">
-        <div style="font-size:.8rem;font-weight:600;color:var(--accent);margin-bottom:8px;letter-spacing:.04em">&#127919; 歌詞制作ポイント（要約）</div>
-        <div id="distilledDisplay"></div>
-      </div>
-      <div style="border-top:1px solid var(--border);padding-top:16px">
-        <div style="font-size:.8rem;font-weight:600;color:var(--text-dim);margin-bottom:8px;letter-spacing:.04em">&#128270; Raw リサーチ</div>
-        <div id="researchDisplay" style="color:var(--text-dim)"></div>
-      </div>
-    </div>
+    <div id="directionsContainer" style="display:none"></div>
+    <div id="researchContainer" style="display:none"></div>
   </div>
 </div>
 
@@ -352,127 +383,93 @@ const chat = $('chat'), welcome = $('welcome');
 const chatInput = $('chatInput'), inputWrap = $('inputWrap'), sendBtn = $('sendBtn');
 const fileBadge = $('fileBadge'), fileNameEl = $('fileName'), fileRemove = $('fileRemove');
 const historyList = $('historyList'), historyEmpty = $('historyEmpty');
-const sidebar = $('sidebar'), lyricsPanel = $('lyricsPanel');
-const lyricsDisplay = $('lyricsDisplay'), rpEmpty = $('rpEmpty');
-const rpLyrics = $('rpLyrics'), rpResearch = $('rpResearch');
-const versionBadge = $('versionBadge');
-const distilledDisplay = $('distilledDisplay'), researchDisplay = $('researchDisplay');
-const versionSelect = $('versionSelect'), versionInfo = $('versionInfo');
-let activeTab = 'lyrics';
+const sidebar = $('sidebar'), rightPanel = $('rightPanel');
+const rpEmpty = $('rpEmpty');
+const directionsContainer = $('directionsContainer');
+const researchContainer = $('researchContainer');
 
-let selectedFile = null, activeId = null, currentLyrics = '', isGenerating = false;
-let lyricsVersion = 0;
-let versions = []; // [{label, lyrics, parent, feedback}]
-let selectedVersion = 'v1';
+let selectedFile = null, activeId = null, isGenerating = false;
+let currentStep = 0;
+let currentResearch = '';
+let currentDirections = [];
 
-// --- Right panel tabs ---
-document.querySelectorAll('.rp-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    activeTab = tab.dataset.tab;
-    document.querySelectorAll('.rp-tab').forEach(t => t.classList.toggle('active', t.dataset.tab===activeTab));
-    document.querySelectorAll('.rp-content').forEach(c => c.classList.toggle('active', c.dataset.tab===activeTab));
+// --- Step indicator ---
+function updateStepIndicator(step) {
+  currentStep = step;
+  document.querySelectorAll('.step-item').forEach(el => {
+    const s = parseInt(el.dataset.step);
+    el.classList.remove('done', 'active');
+    if (s < step) el.classList.add('done');
+    else if (s === step) el.classList.add('active');
   });
-});
-
-function showRpTab(tab) {
-  activeTab = tab;
-  document.querySelectorAll('.rp-tab').forEach(t => t.classList.toggle('active', t.dataset.tab===tab));
-  document.querySelectorAll('.rp-content').forEach(c => c.classList.toggle('active', c.dataset.tab===tab));
 }
 
-let currentResearch = '', currentDistilled = '';
-
-// --- Version management ---
-function renderVersionSelect() {
-  versionSelect.innerHTML = '';
-  versions.forEach(v => {
-    const opt = document.createElement('option');
-    opt.value = v.label;
-    const isBranch = v.label.includes('-');
-    const suffix = v.parent ? ` (from ${v.parent})` : ' - 初回生成';
-    opt.textContent = v.label + suffix;
-    versionSelect.appendChild(opt);
+// --- Right panel ---
+function renderDirections(directions) {
+  currentDirections = directions;
+  directionsContainer.innerHTML = '';
+  directions.forEach((d, i) => {
+    const card = document.createElement('div');
+    card.className = 'dir-card';
+    const moods = (d.mood || '').split(/[,、]/).map(m => m.trim()).filter(Boolean);
+    const moodHtml = moods.map(m => `<span class="mood-tag">${esc(m)}</span>`).join('');
+    card.innerHTML = `
+      <div class="dir-card-num">候補 ${i+1}</div>
+      <div class="dir-card-title">${esc(d.title || '')}</div>
+      <div class="dir-card-concept">${esc(d.concept || '')}</div>
+      <div class="dir-card-meta">
+        <div><strong>🎵 参考:</strong> ${esc(d.reference || '')}</div>
+        <div><strong>⚡ フック:</strong> ${esc(d.hook || '')}</div>
+        <div><strong>⚠️ リスク:</strong> ${esc(d.risk || '')}</div>
+      </div>
+      <div class="dir-card-mood">${moodHtml}</div>
+    `;
+    directionsContainer.appendChild(card);
   });
-  versionSelect.value = selectedVersion;
-  updateVersionInfo();
-}
 
-function updateVersionInfo() {
-  const v = versions.find(x => x.label === selectedVersion);
-  if (v && v.feedback) {
-    versionInfo.textContent = '💬 ' + v.feedback.slice(0, 40) + (v.feedback.length > 40 ? '...' : '');
-  } else {
-    versionInfo.textContent = '';
-  }
-}
+  // Coming soon note
+  const cs = document.createElement('div');
+  cs.className = 'coming-soon';
+  cs.innerHTML = '<strong>Step ④⑤ coming soon</strong><br>方向性を選択 → Sunoプロンプト＋歌詞を自動生成';
+  directionsContainer.appendChild(cs);
 
-versionSelect.addEventListener('change', () => {
-  selectedVersion = versionSelect.value;
-  const v = versions.find(x => x.label === selectedVersion);
-  if (v) {
-    currentLyrics = v.lyrics;
-    lyricsDisplay.textContent = v.lyrics;
-    lyricsDisplay.classList.remove('lyrics-flash');
-    void lyricsDisplay.offsetWidth;
-    lyricsDisplay.classList.add('lyrics-flash');
-    updateVersionInfo();
-    showRpTab('lyrics');
-  }
-});
-
-function addVersion(label, lyrics, parent, feedback) {
-  versions.push({ label, lyrics, parent: parent||null, feedback: feedback||null });
-  selectedVersion = label;
-  renderVersionSelect();
-}
-
-function setVersions(vers) {
-  versions = vers || [];
-  if (versions.length) selectedVersion = versions[versions.length-1].label;
-  else selectedVersion = 'v1';
-  renderVersionSelect();
-}
-
-function updateLyricsPanel(lyrics, label) {
-  lyricsVersion++;
-  currentLyrics = lyrics;
-  lyricsDisplay.textContent = lyrics;
   rpEmpty.style.display = 'none';
-  showRpTab('lyrics');
-  lyricsDisplay.classList.remove('lyrics-flash');
-  void lyricsDisplay.offsetWidth;
-  lyricsDisplay.classList.add('lyrics-flash');
+  directionsContainer.style.display = 'block';
 }
 
-function updateResearchPanel(research, distilled) {
-  currentResearch = research || '';
-  currentDistilled = distilled || '';
-  researchDisplay.textContent = currentResearch;
-  distilledDisplay.textContent = currentDistilled;
+function renderResearchInPanel(research) {
+  currentResearch = research;
+  researchContainer.innerHTML = `
+    <div class="research-section">
+      <div class="research-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.arrow').classList.toggle('open')">
+        <span class="arrow" style="font-size:.65rem;transition:transform .2s">&#9654;</span>
+        🔍 Deep Research（全文）
+      </div>
+      <div class="research-body">${esc(research)}</div>
+    </div>
+  `;
+  researchContainer.style.display = 'block';
 }
 
 function clearRightPanel() {
-  lyricsVersion = 0; currentLyrics = ''; currentResearch = ''; currentDistilled = '';
-  versions = []; selectedVersion = 'v1';
+  currentDirections = [];
+  currentResearch = '';
   rpEmpty.style.display = 'flex';
-  rpLyrics.classList.remove('active');
-  rpResearch.classList.remove('active');
-  lyricsDisplay.textContent = '';
-  researchDisplay.textContent = '';
-  distilledDisplay.textContent = '';
-  versionSelect.innerHTML = '<option value="v1">v1 - 初回生成</option>';
-  versionInfo.textContent = '';
-  showRpTab('lyrics');
+  directionsContainer.style.display = 'none';
+  directionsContainer.innerHTML = '';
+  researchContainer.style.display = 'none';
+  researchContainer.innerHTML = '';
 }
 
-$('lpCopy').addEventListener('click', function() {
-  let text = '';
-  if (activeTab==='lyrics') text = currentLyrics;
-  else text = currentDistilled + '\n\n---\n\n' + currentResearch;
-  if (!text.trim()) return;
+$('copyAll').addEventListener('click', function() {
+  if (!currentDirections.length) return;
+  let text = currentDirections.map((d, i) =>
+    `【候補${i+1}】${d.title}\n${d.concept}\n参考: ${d.reference}\nムード: ${d.mood}\nフック: ${d.hook}\nリスク: ${d.risk}`
+  ).join('\n\n');
+  if (currentResearch) text += '\n\n---\n\n【Deep Research】\n' + currentResearch;
   navigator.clipboard.writeText(text).then(() => {
-    this.textContent = 'コピー済み'; this.classList.add('copied');
-    setTimeout(() => { this.textContent = 'コピー'; this.classList.remove('copied'); }, 1500);
+    this.textContent = 'コピー済み';
+    setTimeout(() => { this.textContent = '全てコピー'; }, 1500);
   });
 });
 
@@ -513,125 +510,113 @@ async function send() {
   if (!text && !hasPdf) return;
 
   welcome.style.display = 'none';
-  const userText = hasPdf && !text ? '📄 '+selectedFile.name : text;
+  const userText = hasPdf && !text ? '📄 ' + selectedFile.name : text;
   addMsg('user', userText);
   chatInput.value = ''; chatInput.style.height = 'auto';
   isGenerating = true; sendBtn.disabled = true;
 
-  if (!activeId) {
-    // generate
-    const thinkEl = addThinking('トレンドリサーチ中...');
-    const fd = new FormData();
-    if (hasPdf) fd.append('file', selectedFile); else fd.append('text', text);
-    clearFile();
-    try {
-      const timer = setTimeout(() => {
-        const t = thinkEl.querySelector('.thinking-text'); if(t) t.textContent='歌詞ドラフト生成中...';
-      }, 8000);
-      const res = await fetch('/api/generate',{method:'POST',body:fd});
-      const data = await res.json(); clearTimeout(timer); thinkEl.remove();
-      if (!res.ok) { addMsg('ai','エラー: '+(data.error||'生成に失敗')); return; }
-      activeId = data.id;
-      lyricsVersion = 0;
-      addAiResult(data.research, data.distilled, data.lyrics);
-      updateResearchPanel(data.research, data.distilled);
-      versions = [];
-      lyricsVersion = 0;
-      addVersion('v1', data.lyrics, null, null);
-      updateLyricsPanel(data.lyrics);
-      loadHistory();
-    } catch(e) { thinkEl.remove(); addMsg('ai','通信エラー: '+e.message); }
-  } else {
-    // revise
-    clearFile();
-    const fromVer = selectedVersion;
-    const thinkEl = addThinking('歌詞を修正中... (from ' + fromVer + ')');
-    try {
-      const res = await fetch('/api/revise',{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({entry_id:activeId, current_lyrics:currentLyrics, feedback:text, from_version:fromVer}),
-      });
-      const data = await res.json(); thinkEl.remove();
-      if (!res.ok) { addMsg('ai','エラー: '+(data.error||'修正に失敗')); return; }
-      const newLabel = data.version_label || ('v'+(versions.length+1));
-      addVersion(newLabel, data.lyrics, fromVer, text);
-      addAiRevision(data.lyrics, newLabel, fromVer);
-      updateLyricsPanel(data.lyrics);
-    } catch(e) { thinkEl.remove(); addMsg('ai','通信エラー: '+e.message); }
+  // Step ①→②→③
+  updateStepIndicator(1);
+  const thinkEl = addThinking('① 企画書を受付中...');
+
+  const fd = new FormData();
+  if (hasPdf) fd.append('file', selectedFile); else fd.append('text', text);
+  clearFile();
+
+  try {
+    // Update thinking as steps progress
+    setTimeout(() => {
+      if (isGenerating) {
+        updateStepIndicator(2);
+        const t = thinkEl.querySelector('.thinking-text');
+        if (t) t.textContent = '② Perplexity deep-research 実行中...（数分かかる場合があります）';
+      }
+    }, 2000);
+
+    const res = await fetch('/api/generate', { method: 'POST', body: fd });
+    const data = await res.json();
+    thinkEl.remove();
+
+    if (!res.ok) {
+      addMsg('ai', 'エラー: ' + (data.error || '生成に失敗'));
+      updateStepIndicator(0);
+      isGenerating = false; sendBtn.disabled = false;
+      return;
+    }
+
+    updateStepIndicator(3);
+    activeId = data.id;
+
+    // Show research in chat (collapsible)
+    addResearchMsg(data.research);
+
+    // Show directions in chat
+    addDirectionsMsg(data.directions);
+
+    // Update right panel
+    renderDirections(data.directions);
+    renderResearchInPanel(data.research);
+
+    loadHistory();
+  } catch (e) {
+    thinkEl.remove();
+    addMsg('ai', '通信エラー: ' + e.message);
+    updateStepIndicator(0);
   }
+
   isGenerating = false; sendBtn.disabled = false;
 }
 
 // --- Messages ---
 function addMsg(role, text) {
   const el = document.createElement('div');
-  el.className = 'msg '+role;
-  el.innerHTML = '<div class="msg-label">'+(role==='user'?'You':'ULTRON')+'</div><div class="msg-body"></div>';
+  el.className = 'msg ' + role;
+  el.innerHTML = '<div class="msg-label">' + (role === 'user' ? 'You' : 'ULTRON') + '</div><div class="msg-body"></div>';
   el.querySelector('.msg-body').textContent = text;
   chat.appendChild(el); scrollBottom();
 }
 
-function addAiResult(research, distilled, lyrics) {
+function addResearchMsg(research) {
   const el = document.createElement('div');
   el.className = 'msg ai';
   el.innerHTML = `
-    <div class="msg-label">ULTRON</div>
+    <div class="msg-label">ULTRON — Step ②</div>
     <div class="msg-body">
       <div class="msg-section">
         <div class="section-toggle" onclick="toggleSection(this)">
-          <span class="arrow">&#9654;</span> 🔍 トレンドリサーチ（raw）
+          <span class="arrow">&#9654;</span> 🔍 Deep Research 完了
         </div>
         <div class="section-content research-c"></div>
       </div>
-      <div class="msg-section" style="margin-top:8px">
-        <div class="section-toggle" onclick="toggleSection(this)">
-          <span class="arrow open">&#9654;</span> 🎯 歌詞制作ポイント（要約）
-        </div>
-        <div class="section-content open distilled-c"></div>
-      </div>
-      <div class="msg-section" style="margin-top:8px">
-        <div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0">🎵 歌詞ドラフト → 右パネルに表示中</div>
-      </div>
       <div class="msg-actions">
-        <button class="msg-action" onclick="copyFrom(this,'d')">要約をコピー</button>
-        <button class="msg-action" onclick="copyFrom(this,'r')">rawリサーチをコピー</button>
+        <button class="msg-action" onclick="copyText(this,'${btoa(encodeURIComponent('research'))}')">リサーチをコピー</button>
       </div>
     </div>`;
   el.querySelector('.research-c').textContent = research;
-  el.querySelector('.distilled-c').textContent = distilled || '';
   el._research = research;
-  el._distilled = distilled || '';
   chat.appendChild(el); scrollBottom();
 }
 
-function addAiRevision(lyrics, label, fromVer) {
+function addDirectionsMsg(directions) {
   const el = document.createElement('div');
   el.className = 'msg ai';
-  const vLabel = label || ('v'+lyricsVersion);
-  const fromInfo = fromVer ? ` (${fromVer} → ${vLabel})` : '';
-  const isBranch = vLabel.includes('-');
-  const branchNote = isBranch ? ' 🔀 分岐' : '';
-  el.innerHTML = `
-    <div class="msg-label">ULTRON</div>
-    <div class="msg-body">
-      <div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0">
-        🎵 ${vLabel}${branchNote}${fromInfo} → 右パネルに反映済み
-      </div>
-      <div class="msg-section">
-        <div class="section-toggle" onclick="toggleSection(this)">
-          <span class="arrow">&#9654;</span> 修正内容を表示
-        </div>
-        <div class="section-content rev-c"></div>
-      </div>
+  let html = '<div class="msg-label">ULTRON — Step ③</div><div class="msg-body">';
+  html += '<div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0 8px">🎯 方向性候補 ' + directions.length + '案 → 右パネルに表示中</div>';
+  directions.forEach((d, i) => {
+    html += `<div style="margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:6px;font-size:.8rem">
+      <strong style="color:var(--accent)">候補${i+1}:</strong> ${esc(d.title || '')}
+      <div style="color:var(--text-dim);font-size:.75rem;margin-top:2px">${esc((d.concept || '').slice(0, 80))}${(d.concept||'').length > 80 ? '...' : ''}</div>
     </div>`;
-  el.querySelector('.rev-c').textContent = lyrics;
+  });
+  html += '</div>';
+  el.innerHTML = html;
   chat.appendChild(el); scrollBottom();
 }
 
 function addThinking(text) {
   const el = document.createElement('div');
   el.className = 'thinking';
-  el.innerHTML = '<span></span><span></span><span></span><span class="thinking-text">'+text+'</span>';
+  el.innerHTML = '<span></span><span></span><span></span><span class="thinking-text">' + text + '</span>';
   chat.appendChild(el); scrollBottom(); return el;
 }
 
@@ -640,39 +625,33 @@ function toggleSection(t) {
   t.nextElementSibling.classList.toggle('open');
 }
 
-function copyFrom(btn, type) {
+function copyText(btn, encoded) {
   const msg = btn.closest('.msg');
-  let t = '', label = '';
-  if (type==='r') { t = msg._research||msg.querySelector('.research-c')?.textContent||''; label='rawリサーチをコピー'; }
-  else if (type==='d') { t = msg._distilled||msg.querySelector('.distilled-c')?.textContent||''; label='要約をコピー'; }
-  navigator.clipboard.writeText(t).then(() => {
-    btn.textContent='コピー済み'; btn.classList.add('copied');
-    setTimeout(()=>{btn.textContent=label;btn.classList.remove('copied')},1500);
+  const text = msg._research || msg.querySelector('.research-c')?.textContent || '';
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'コピー済み'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'リサーチをコピー'; btn.classList.remove('copied'); }, 1500);
   });
 }
 
-function scrollBottom() { requestAnimationFrame(()=>{ chat.scrollTop=chat.scrollHeight }); }
+function scrollBottom() { requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight }); }
 
 // --- Mobile toggles ---
 $('sidebarToggle').addEventListener('click', () => { sidebar.classList.toggle('open'); $('sidebarOverlay').classList.toggle('show'); });
-$('lyricsToggle').addEventListener('click', () => { lyricsPanel.classList.toggle('open'); });
+$('lyricsToggle').addEventListener('click', () => { rightPanel.classList.toggle('open'); });
 $('sidebarOverlay').addEventListener('click', () => { sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show'); });
 
 // --- Sidebar ---
 $('regenTitles').addEventListener('click', async function() {
   this.disabled = true; this.textContent = '...';
-  try {
-    const res = await fetch('/api/history/regenerate-titles', {method:'POST'});
-    const data = await res.json();
-    loadHistory();
-  } catch(e) {}
+  try { await fetch('/api/history/regenerate-titles', { method: 'POST' }); loadHistory(); } catch (e) {}
   this.disabled = false; this.textContent = '\u21bb';
 });
 
 $('newBtn').addEventListener('click', () => {
-  activeId=null; clearRightPanel();
-  chat.innerHTML=''; chat.appendChild(welcome); welcome.style.display='flex';
-  document.querySelectorAll('.hi').forEach(el=>el.classList.remove('active'));
+  activeId = null; clearRightPanel(); updateStepIndicator(0);
+  chat.innerHTML = ''; chat.appendChild(welcome); welcome.style.display = 'flex';
+  document.querySelectorAll('.hi').forEach(el => el.classList.remove('active'));
   sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show');
 });
 
@@ -680,96 +659,72 @@ async function loadHistory() {
   try {
     const res = await fetch('/api/history');
     const items = await res.json();
-    historyList.querySelectorAll('.hi').forEach(el=>el.remove());
-    historyEmpty.style.display = items.length?'none':'block';
+    historyList.querySelectorAll('.hi').forEach(el => el.remove());
+    historyEmpty.style.display = items.length ? 'none' : 'block';
     items.forEach(item => {
       const el = document.createElement('div');
-      el.className='hi'+(item.id===activeId?' active':'');
-      el.dataset.id=item.id;
-      const d=new Date(item.created_at);
-      const ds=(d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
-      el.innerHTML='<div class="t">'+esc(item.title)+'</div><div class="d">'+ds+'</div><button class="x">&times;</button>';
-      el.addEventListener('click',e=>{if(!e.target.classList.contains('x'))selectHistory(item.id)});
-      el.querySelector('.x').addEventListener('click',e=>{e.stopPropagation();deleteHistory(item.id)});
+      el.className = 'hi' + (item.id === activeId ? ' active' : '');
+      el.dataset.id = item.id;
+      const d = new Date(item.created_at);
+      const ds = (d.getMonth()+1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      const stepLabel = item.step ? `Step ${item.step}` : '';
+      el.innerHTML = '<div class="t">' + esc(item.title) + (stepLabel ? ' <span class="step-badge">' + stepLabel + '</span>' : '') + '</div><div class="d">' + ds + '</div><button class="x">&times;</button>';
+      el.addEventListener('click', e => { if (!e.target.classList.contains('x')) selectHistory(item.id) });
+      el.querySelector('.x').addEventListener('click', e => { e.stopPropagation(); deleteHistory(item.id) });
       historyList.appendChild(el);
     });
-  } catch(e){}
+  } catch (e) {}
 }
 
 async function selectHistory(id) {
   try {
-    const res=await fetch('/api/history/'+id);
-    const data=await res.json();
-    if(!res.ok) return;
-    activeId=id; lyricsVersion=0;
-    chat.innerHTML=''; welcome.style.display='none'; chat.appendChild(welcome);
+    const res = await fetch('/api/history/' + id);
+    const data = await res.json();
+    if (!res.ok) return;
 
-    addMsg('user', data.brief||'');
-    addAiResult(data.research||'', data.distilled||'', data.lyrics||'');
-    updateResearchPanel(data.research||'', data.distilled||'');
+    activeId = id;
+    chat.innerHTML = ''; welcome.style.display = 'none'; chat.appendChild(welcome);
+    updateStepIndicator(data.step || 3);
 
-    // Restore versions
-    if (data.versions && data.versions.length) {
-      setVersions(data.versions);
-    } else {
-      // legacy: build from revisions
-      versions = [{label:'v1', lyrics:data.lyrics||'', parent:null, feedback:null}];
-      if (data.revisions) {
-        data.revisions.forEach((rev,i) => {
-          versions.push({label:'v'+(i+2), lyrics:rev.previous_lyrics||'', parent:'v'+(i+1), feedback:rev.feedback});
-        });
-      }
-      setVersions(versions);
+    // Show brief
+    addMsg('user', data.brief || '');
+
+    // Show research
+    if (data.research) addResearchMsg(data.research);
+
+    // Show directions
+    const dirs = data.directions || [];
+    if (dirs.length) {
+      addDirectionsMsg(dirs);
+      renderDirections(dirs);
     }
+    if (data.research) renderResearchInPanel(data.research);
 
-    // replay revisions in chat
-    if (data.versions && data.versions.length > 1) {
-      data.versions.slice(1).forEach(v => {
-        if (v.feedback) addMsg('user', v.feedback);
-        const el = document.createElement('div');
-        el.className='msg ai';
-        const isBranch = v.label.includes('-');
-        el.innerHTML=`<div class="msg-label">ULTRON</div>
-          <div class="msg-body"><div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0">🎵 ${v.label}${isBranch?' 🔀 分岐':''} (from ${v.parent||'?'})</div></div>`;
-        chat.appendChild(el);
-      });
-    } else if (data.revisions && data.revisions.length) {
-      data.revisions.forEach((rev,i) => {
-        addMsg('user', rev.feedback);
-        const el = document.createElement('div');
-        el.className='msg ai';
-        el.innerHTML=`<div class="msg-label">ULTRON</div>
-          <div class="msg-body"><div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0">🎵 v${i+2}</div></div>`;
-        chat.appendChild(el);
-      });
-    }
+    if (!dirs.length && !data.research) clearRightPanel();
 
-    lyricsVersion = versions.length;
-    updateLyricsPanel(currentLyrics);
-
-    document.querySelectorAll('.hi').forEach(el=>el.classList.toggle('active',el.dataset.id===id));
+    document.querySelectorAll('.hi').forEach(el => el.classList.toggle('active', el.dataset.id === id));
     sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show');
     scrollBottom();
-  } catch(e){}
+  } catch (e) {}
 }
 
 async function deleteHistory(id) {
   try {
-    await fetch('/api/history/'+id,{method:'DELETE'});
-    if(activeId===id){ activeId=null; clearRightPanel(); chat.innerHTML=''; chat.appendChild(welcome); welcome.style.display='flex'; }
+    await fetch('/api/history/' + id, { method: 'DELETE' });
+    if (activeId === id) {
+      activeId = null; clearRightPanel(); updateStepIndicator(0);
+      chat.innerHTML = ''; chat.appendChild(welcome); welcome.style.display = 'flex';
+    }
     loadHistory();
-  } catch(e){}
+  } catch (e) {}
 }
 
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
 
 loadHistory();
 
 // --- Resize handles ---
-(function(){
-  const resizeLeft = $('resizeLeft');
-  const resizeRight = $('resizeRight');
-
+(function() {
   function initResize(handle, getTarget, side) {
     let startX, startW, target;
     handle.addEventListener('mousedown', e => {
@@ -800,9 +755,8 @@ loadHistory();
       document.removeEventListener('mouseup', onUp);
     }
   }
-
-  initResize(resizeLeft, () => sidebar, 'left');
-  initResize(resizeRight, () => lyricsPanel, 'right');
+  initResize($('resizeLeft'), () => sidebar, 'left');
+  initResize($('resizeRight'), () => rightPanel, 'right');
 })();
 </script>
 </body>
