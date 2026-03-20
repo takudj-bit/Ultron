@@ -259,8 +259,10 @@ def synthesize(brief: str, analysis: str, research: str) -> str:
 
 # --- Step ④ 検証 ---
 
-def verify(brief: str, synthesis: str) -> str:
-    """Claude Sonnet — 最終検証。企画書に立ち返り、統合分析の妥当性を確認"""
+def verify(brief: str, synthesis: str) -> dict:
+    """Claude Sonnet — 最終検証。不十分なら追加リサーチ指示を返す。
+    Returns: {"pass": bool, "comment": str, "additional_research": str | None}
+    """
     response = claude_client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=3000,
@@ -268,20 +270,46 @@ def verify(brief: str, synthesis: str) -> str:
             "role": "user",
             "content": (
                 "あなたはプロの音楽プロデューサーのセカンドオピニオン担当です。\n\n"
-                "以下の統合分析が企画書に対して妥当かどうか、最終チェックしてください。\n\n"
+                "以下の統合分析が企画書に対して十分かどうか、最終チェックしてください。\n\n"
                 "チェック項目:\n"
                 "- 企画書の本来の目的から逸れていないか？\n"
                 "- 重要な見落としはないか？\n"
                 "- 分析の論理に飛躍はないか？\n"
-                "- プロデューサーへの提案として実用的か？\n\n"
-                "問題があれば指摘し、なければ「検証OK」と一言添えてください。\n"
-                "簡潔に。長くても5行以内。\n\n"
+                "- プロデューサーへの提案として実用的か？\n"
+                "- リサーチで調べきれていない重要な情報はないか？\n\n"
+                "出力フォーマット:\n"
+                "PASS または FAIL を最初の行に書く。\n"
+                "2行目以降にコメント（簡潔に）。\n"
+                "FAILの場合のみ、最後に「=== 追加リサーチ指示 ===」の後に、\n"
+                "Perplexityで追加調査すべき内容を書く。\n\n"
                 f"【企画書】\n{brief}\n\n"
                 f"【統合分析】\n{synthesis}"
             ),
         }],
     )
-    return response.content[0].text
+    raw = response.content[0].text.strip()
+
+    is_pass = raw.upper().startswith("PASS")
+    additional_research = None
+    comment = raw
+
+    if "=== 追加リサーチ指示 ===" in raw:
+        parts = raw.split("=== 追加リサーチ指示 ===", 1)
+        comment = parts[0].strip()
+        additional_research = parts[1].strip()
+    elif not is_pass and "追加リサーチ" in raw:
+        # Fallback: try to extract after the keyword
+        idx = raw.index("追加リサーチ")
+        line_start = raw.find("\n", idx)
+        if line_start > 0:
+            additional_research = raw[line_start:].strip()
+            comment = raw[:idx].strip()
+
+    return {
+        "pass": is_pass,
+        "comment": comment,
+        "additional_research": additional_research,
+    }
 
 
 SUMMARY_PROMPT = """\
@@ -686,8 +714,21 @@ async def analyze(
         # ③ Claude がリサーチ結果と企画書を統合して分析・まとめ
         synthesis = synthesize(brief, analysis, research)
 
-        # ④ 検証
-        verification = verify(brief, synthesis)
+        # ④ 検証 → 不十分なら追加リサーチして再統合（最大1回リトライ）
+        verification_result = verify(brief, synthesis)
+
+        if not verification_result["pass"] and verification_result["additional_research"]:
+            # 追加リサーチ実行
+            additional_research = deep_research(verification_result["additional_research"])
+            research = research + "\n\n--- 追加リサーチ ---\n\n" + additional_research
+
+            # 再統合（追加リサーチを含めて）
+            synthesis = synthesize(brief, analysis, research)
+
+            # 再検証
+            verification_result = verify(brief, synthesis)
+
+        verification = verification_result["comment"]
 
         # Summary for UI cards (GPT-4o-mini)
         summary = generate_summary(research)
