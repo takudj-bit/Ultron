@@ -2,7 +2,7 @@
 Ultron v2 — 音楽プロデューサー向け制作ワークフロー (5-Step)
 
 ① クライアント企画書インプット
-② Perplexity deep-research（ポジション・響き方・不足点）
+② Perplexity deep-research → サマリー確認フェーズ
 ③ Claude extended thinking → 方向性候補を3〜5個提示
 ④ ユーザーが方向性を選択（未実装）
 ⑤ Sunoプロンプト＋歌詞候補生成（未実装）
@@ -99,7 +99,6 @@ def generate_title(brief: str) -> str:
 
 def _parse_directions_json(raw: str) -> list[dict]:
     """Claude/GPTの出力からJSON配列をパースする"""
-    # まずそのままパース
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, list):
@@ -113,28 +112,23 @@ def _parse_directions_json(raw: str) -> list[dict]:
             return [parsed]
     except json.JSONDecodeError:
         pass
-
-    # テキスト中のJSON配列を抽出
     match = re.search(r'\[.*\]', raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
         except json.JSONDecodeError:
             pass
-
-    # ```json ... ``` ブロックを抽出
     match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
-
     return [{"title": "解析エラー", "concept": raw[:500], "reference": "", "mood": "", "hook": "", "risk": ""}]
 
 
 # ========================================================================
-# Step ② — Perplexity Deep Research（汎用・動的プロンプト生成）
+# Step ② — Perplexity Deep Research
 # ========================================================================
 
 RESEARCH_SYSTEM_PROMPT = """\
@@ -182,7 +176,6 @@ RESEARCH_SYSTEM_PROMPT = """\
 
 def deep_research(brief: str) -> str:
     """Perplexity research: deep-research → sonar → Claude フォールバック"""
-    # Try Perplexity models first
     for model in ("sonar-deep-research", "sonar"):
         try:
             response = perplexity_client.chat.completions.create(
@@ -204,27 +197,69 @@ def deep_research(brief: str) -> str:
         except Exception:
             continue
 
-    # Fallback: Claude (no web search, but deep analysis from training data)
     try:
         response = claude_client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=8000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"{RESEARCH_SYSTEM_PROMPT}\n\n"
-                        "※注意: Web検索は使えません。あなたの知識ベースに基づいて分析してください。"
-                        "最新データが不明な場合はその旨を明記し、わかる範囲で回答してください。\n\n"
-                        "以下の企画書からアーティスト名を読み取り、4項目を調査してください:\n\n"
-                        f"{brief}"
-                    ),
-                },
-            ],
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"{RESEARCH_SYSTEM_PROMPT}\n\n"
+                    "※注意: Web検索は使えません。知識ベースに基づいて分析してください。\n\n"
+                    "以下の企画書からアーティスト名を読み取り、4項目を調査してください:\n\n"
+                    f"{brief}"
+                ),
+            }],
         )
         return "[model: claude-sonnet (Perplexity quota exceeded)]\n\n" + response.content[0].text
     except Exception as e:
         raise RuntimeError(f"全リサーチモデルが失敗: {str(e)}")
+
+
+# ========================================================================
+# Step ②' — リサーチ結果のサマリー生成
+# ========================================================================
+
+SUMMARY_PROMPT = """\
+リサーチ結果を以下の3項目に要約してください。
+各項目は箇条書き3〜5個でシンプルにまとめる。長い説明は不要。
+
+出力フォーマット（JSON）:
+{
+  "audience": ["響いているユーザー層のポイント1", "ポイント2", ...],
+  "resonance": ["そのユーザーに響くもののポイント1", "ポイント2", ...],
+  "challenges": ["課題・伸びしろのポイント1", "ポイント2", ...]
+}
+
+ルール:
+- 各項目は最大5個まで
+- 1つのポイントは1〜2文
+- JSON のみ出力。説明文は不要
+- 日本語で書く
+"""
+
+
+def generate_summary(research: str) -> dict:
+    """リサーチ結果を3項目サマリーに要約"""
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": SUMMARY_PROMPT},
+            {"role": "user", "content": f"以下のリサーチ結果を要約してください:\n\n{research}"},
+        ],
+        temperature=0.3,
+        response_format={"type": "json_object"},
+    )
+    raw = response.choices[0].message.content
+    try:
+        parsed = json.loads(raw)
+        return {
+            "audience": parsed.get("audience", []),
+            "resonance": parsed.get("resonance", []),
+            "challenges": parsed.get("challenges", []),
+        }
+    except json.JSONDecodeError:
+        return {"audience": ["要約生成エラー"], "resonance": [], "challenges": []}
 
 
 # ========================================================================
@@ -273,24 +308,17 @@ def generate_directions(brief: str, research: str) -> tuple[list[dict], str]:
     response = claude_client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=16000,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 10000,
-        },
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"{DIRECTIONS_PROMPT}\n\n"
-                    f"【企画書】\n{brief}\n\n"
-                    f"【リサーチ結果】\n{research}\n\n"
-                    "これらを深く分析した上で、曲の方向性候補をJSON配列で提案してください。"
-                ),
-            },
-        ],
+        thinking={"type": "enabled", "budget_tokens": 10000},
+        messages=[{
+            "role": "user",
+            "content": (
+                f"{DIRECTIONS_PROMPT}\n\n"
+                f"【企画書】\n{brief}\n\n"
+                f"【リサーチ結果】\n{research}\n\n"
+                "これらを深く分析した上で、曲の方向性候補をJSON配列で提案してください。"
+            ),
+        }],
     )
-
-    # Extract thinking and text from response
     thinking_text = ""
     output_text = ""
     for block in response.content:
@@ -298,13 +326,11 @@ def generate_directions(brief: str, research: str) -> tuple[list[dict], str]:
             thinking_text = block.thinking
         elif block.type == "text":
             output_text = block.text
-
-    directions = _parse_directions_json(output_text)
-    return directions, thinking_text
+    return _parse_directions_json(output_text), thinking_text
 
 
 # ========================================================================
-# Step ③' — Claude Extended Thinking → 反論を受けてリファイン
+# Step ③' — 反論を受けてリファイン
 # ========================================================================
 
 REFINE_PROMPT = """\
@@ -344,31 +370,24 @@ REFINE_PROMPT = """\
 
 
 def refine_directions(brief: str, research: str, current_directions: list[dict], feedback: str) -> tuple[list[dict], str]:
-    """Claude extended thinkingで方向性をリファイン。(directions, thinking)を返す"""
+    """Claude extended thinkingで方向性をリファイン"""
     dirs_text = json.dumps(current_directions, ensure_ascii=False, indent=2)
-
     response = claude_client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=16000,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 10000,
-        },
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"{REFINE_PROMPT}\n\n"
-                    f"【企画書】\n{brief}\n\n"
-                    f"【リサーチ結果】\n{research}\n\n"
-                    f"【前回の方向性候補】\n{dirs_text}\n\n"
-                    f"【プロデューサーのフィードバック】\n{feedback}\n\n"
-                    "フィードバックを深く分析した上で、方向性候補を改善・再提案してください。JSON配列のみ出力。"
-                ),
-            },
-        ],
+        thinking={"type": "enabled", "budget_tokens": 10000},
+        messages=[{
+            "role": "user",
+            "content": (
+                f"{REFINE_PROMPT}\n\n"
+                f"【企画書】\n{brief}\n\n"
+                f"【リサーチ結果】\n{research}\n\n"
+                f"【前回の方向性候補】\n{dirs_text}\n\n"
+                f"【プロデューサーのフィードバック】\n{feedback}\n\n"
+                "フィードバックを深く分析した上で、方向性候補を改善・再提案してください。JSON配列のみ出力。"
+            ),
+        }],
     )
-
     thinking_text = ""
     output_text = ""
     for block in response.content:
@@ -376,13 +395,11 @@ def refine_directions(brief: str, research: str, current_directions: list[dict],
             thinking_text = block.thinking
         elif block.type == "text":
             output_text = block.text
-
-    directions = _parse_directions_json(output_text)
-    return directions, thinking_text
+    return _parse_directions_json(output_text), thinking_text
 
 
 # ========================================================================
-# API Endpoints — Steps ①②③
+# API Endpoints
 # ========================================================================
 
 @app.post("/api/generate")
@@ -390,8 +407,7 @@ async def generate(
     file: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
 ):
-    """Steps ①②③: 企画書 → deep-research → 方向性候補"""
-    # ① Brief input
+    """Steps ①②: 企画書 → リサーチ → サマリー確認フェーズで止まる"""
     brief = None
     if file and file.filename:
         file_bytes = await file.read()
@@ -406,24 +422,22 @@ async def generate(
         return JSONResponse(status_code=400, content={"error": "ファイルまたはテキストを入力してください"})
 
     try:
-        # ② Deep research
         research = deep_research(brief)
-        # ③ Direction candidates (with extended thinking)
-        directions, thinking = generate_directions(brief, research)
+        summary = generate_summary(research)
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"生成中にエラーが発生しました: {str(e)}"})
+        return JSONResponse(status_code=500, content={"error": f"リサーチ中にエラー: {str(e)}"})
 
-    # Save
     now = datetime.now().isoformat()
     title = generate_title(brief)
     entry = {
         "id": str(uuid.uuid4()),
         "title": title,
         "created_at": now,
-        "step": 3,
+        "step": 2,
         "brief": brief,
         "research": research,
-        "directions": directions,
+        "summary": summary,
+        "directions": [],
         "selected_direction": None,
         "lyrics": "",
         "suno_prompt": "",
@@ -435,9 +449,82 @@ async def generate(
         "title": title,
         "brief": brief[:500] + ("..." if len(brief) > 500 else ""),
         "research": research,
+        "summary": summary,
+        "step": 2,
+    }
+
+
+class ProceedRequest(BaseModel):
+    entry_id: str
+
+
+@app.post("/api/proceed")
+async def proceed(req: ProceedRequest):
+    """サマリー確認OK → Step③ 方向性候補を生成"""
+    entry = db.get_project(req.entry_id)
+    if not entry:
+        return JSONResponse(status_code=404, content={"error": "プロジェクトが見つかりません"})
+
+    brief = entry.get("brief", "")
+    research = entry.get("research", "")
+
+    try:
+        directions, thinking = generate_directions(brief, research)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"方向性生成エラー: {str(e)}"})
+
+    db.update_project(req.entry_id, step=3, directions=directions)
+
+    return {
         "directions": directions,
         "thinking": thinking,
         "step": 3,
+    }
+
+
+class ReviseResearchRequest(BaseModel):
+    entry_id: str
+    feedback: str
+
+
+@app.post("/api/revise-research")
+async def revise_research(req: ReviseResearchRequest):
+    """サマリーへの修正コメントを受けてリサーチ補足→サマリー再生成"""
+    entry = db.get_project(req.entry_id)
+    if not entry:
+        return JSONResponse(status_code=404, content={"error": "プロジェクトが見つかりません"})
+
+    research = entry.get("research", "")
+
+    try:
+        # Claudeでリサーチを補足・修正
+        response = claude_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=6000,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "以下はアーティストのリサーチ結果です。\n"
+                    "プロデューサーから修正コメントが来ました。\n"
+                    "コメントを踏まえてリサーチ結果を補足・修正してください。\n"
+                    "元のリサーチの良い部分は残しつつ、指摘された点を改善してください。\n"
+                    "修正後のリサーチ全文を出力してください。\n\n"
+                    f"【元のリサーチ】\n{research}\n\n"
+                    f"【修正コメント】\n{req.feedback}"
+                ),
+            }],
+        )
+        revised_research = response.content[0].text
+        summary = generate_summary(revised_research)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"リサーチ修正エラー: {str(e)}"})
+
+    db.update_project(req.entry_id, research=revised_research, summary=summary)
+
+    return {
+        "research": revised_research,
+        "summary": summary,
+        "step": 2,
     }
 
 
@@ -453,26 +540,23 @@ async def refine(req: RefineRequest):
     if not entry:
         return JSONResponse(status_code=404, content={"error": "プロジェクトが見つかりません"})
 
-    brief = entry.get("brief", "")
-    research = entry.get("research", "")
-    current_dirs = entry.get("directions", [])
-
     try:
-        new_dirs, thinking = refine_directions(brief, research, current_dirs, req.feedback)
+        new_dirs, thinking = refine_directions(
+            entry.get("brief", ""),
+            entry.get("research", ""),
+            entry.get("directions", []),
+            req.feedback,
+        )
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": f"リファイン中にエラー: {str(e)}"})
 
     db.update_project(req.entry_id, directions=new_dirs)
 
-    return {
-        "directions": new_dirs,
-        "thinking": thinking,
-        "feedback": req.feedback,
-    }
+    return {"directions": new_dirs, "thinking": thinking, "feedback": req.feedback}
 
 
 # ========================================================================
-# API Endpoints — History
+# History
 # ========================================================================
 
 @app.get("/api/history")

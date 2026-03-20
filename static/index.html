@@ -250,6 +250,55 @@ body.resizing .resize-handle{pointer-events:auto}
 }
 .coming-soon strong{color:var(--orange)}
 
+/* Summary confirmation cards */
+.summary-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;margin-bottom:10px;
+}
+.summary-card h4{
+  font-size:.78rem;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;
+}
+.summary-card ul{list-style:none;padding:0;margin:0}
+.summary-card li{
+  font-size:.8rem;line-height:1.6;color:var(--text);padding:2px 0 2px 12px;
+  position:relative;
+}
+.summary-card li::before{
+  content:'•';position:absolute;left:0;color:var(--accent);
+}
+.summary-confirm-actions{
+  display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;
+}
+.btn-proceed{
+  padding:8px 18px;font-size:.82rem;font-weight:600;
+  background:var(--green);color:#fff;border:none;border-radius:6px;
+  cursor:pointer;transition:.15s;
+}
+.btn-proceed:hover{filter:brightness(1.15)}
+.btn-proceed:disabled{opacity:.4;cursor:not-allowed}
+.btn-revise{
+  padding:8px 18px;font-size:.82rem;font-weight:600;
+  background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:6px;
+  cursor:pointer;transition:.15s;
+}
+.btn-revise:hover{border-color:var(--accent);color:var(--accent)}
+.revise-input-wrap{
+  display:none;margin-top:10px;
+}
+.revise-input-wrap.show{display:block}
+.revise-input{
+  width:100%;padding:8px 12px;font-size:.82rem;
+  background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;
+  font-family:inherit;resize:none;outline:none;line-height:1.4;
+}
+.revise-input:focus{border-color:var(--accent)}
+.revise-send{
+  margin-top:6px;padding:6px 14px;font-size:.78rem;
+  background:var(--accent);color:#fff;border:none;border-radius:5px;
+  cursor:pointer;transition:.15s;
+}
+.revise-send:hover{filter:brightness(1.15)}
+
 /* Research panel (collapsible in right panel) */
 .research-section{
   margin-top:16px;padding-top:16px;border-top:1px solid var(--border);
@@ -529,8 +578,11 @@ async function send() {
   if (activeId && currentStep >= 3) {
     // --- Refine: 方向性への反論 ---
     await sendRefine(text);
+  } else if (activeId && currentStep === 2) {
+    // --- Step②': サマリーへの修正コメント ---
+    await sendReviseResearch(text);
   } else {
-    // --- New: Step ①→②→③ ---
+    // --- New: Step ①→② ---
     await sendGenerate(text, hasPdf);
   }
 
@@ -564,11 +616,11 @@ async function sendGenerate(text, hasPdf) {
       return;
     }
 
-    updateStepIndicator(3);
+    // Step ② complete — show summary for confirmation
+    updateStepIndicator(2);
     activeId = data.id;
     addResearchMsg(data.research);
-    addDirectionsMsg(data.directions, data.thinking || '');
-    renderDirections(data.directions);
+    addSummaryConfirmation(data.summary);
     renderResearchInPanel(data.research);
     updatePlaceholder();
     loadHistory();
@@ -577,6 +629,74 @@ async function sendGenerate(text, hasPdf) {
     addMsg('ai', '通信エラー: ' + e.message);
     updateStepIndicator(0);
   }
+}
+
+async function sendReviseResearch(feedback) {
+  const thinkEl = addThinking('リサーチを修正中...');
+  clearFile();
+
+  try {
+    const res = await fetch('/api/revise-research', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_id: activeId, feedback }),
+    });
+    const data = await res.json();
+    thinkEl.remove();
+
+    if (!res.ok) {
+      addMsg('ai', 'エラー: ' + (data.error || 'リサーチ修正に失敗'));
+      return;
+    }
+
+    addResearchMsg(data.research);
+    addSummaryConfirmation(data.summary);
+    renderResearchInPanel(data.research);
+  } catch (e) {
+    thinkEl.remove();
+    addMsg('ai', '通信エラー: ' + e.message);
+  }
+}
+
+async function proceedToDirections() {
+  if (isGenerating) return;
+  isGenerating = true; sendBtn.disabled = true;
+
+  // Disable the proceed button
+  document.querySelectorAll('.btn-proceed').forEach(b => { b.disabled = true; b.textContent = '生成中...'; });
+
+  const thinkEl = addThinking('③ Claude extended thinking で方向性を生成中...');
+  updateStepIndicator(3);
+
+  try {
+    const res = await fetch('/api/proceed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_id: activeId }),
+    });
+    const data = await res.json();
+    thinkEl.remove();
+
+    if (!res.ok) {
+      addMsg('ai', 'エラー: ' + (data.error || '方向性生成に失敗'));
+      updateStepIndicator(2);
+      document.querySelectorAll('.btn-proceed').forEach(b => { b.disabled = false; b.textContent = 'この分析で進む'; });
+      isGenerating = false; sendBtn.disabled = false;
+      return;
+    }
+
+    updateStepIndicator(3);
+    addDirectionsMsg(data.directions, data.thinking || '');
+    renderDirections(data.directions);
+    updatePlaceholder();
+    loadHistory();
+  } catch (e) {
+    thinkEl.remove();
+    addMsg('ai', '通信エラー: ' + e.message);
+    updateStepIndicator(2);
+    document.querySelectorAll('.btn-proceed').forEach(b => { b.disabled = false; b.textContent = 'この分析で進む'; });
+  }
+  isGenerating = false; sendBtn.disabled = false;
 }
 
 async function sendRefine(feedback) {
@@ -609,9 +729,68 @@ async function sendRefine(feedback) {
 function updatePlaceholder() {
   if (activeId && currentStep >= 3) {
     chatInput.placeholder = '方向性への反論・フィードバックを入力...';
+  } else if (activeId && currentStep === 2) {
+    chatInput.placeholder = '分析への修正コメントを入力...';
   } else {
     chatInput.placeholder = '企画内容を入力、またはファイルをドロップ...';
   }
+}
+
+function addSummaryConfirmation(summary) {
+  const el = document.createElement('div');
+  el.className = 'msg ai';
+  const audienceHtml = (summary.audience || []).map(s => `<li>${esc(s)}</li>`).join('');
+  const resonanceHtml = (summary.resonance || []).map(s => `<li>${esc(s)}</li>`).join('');
+  const challengesHtml = (summary.challenges || []).map(s => `<li>${esc(s)}</li>`).join('');
+
+  el.innerHTML = `
+    <div class="msg-label">ULTRON — Step ②' アーティスト分析サマリー</div>
+    <div class="msg-body" style="padding:14px 16px">
+      <div class="summary-card" style="border-left:3px solid var(--blue)">
+        <h4><span style="color:var(--blue)">👥</span> 響いているユーザー層</h4>
+        <ul>${audienceHtml}</ul>
+      </div>
+      <div class="summary-card" style="border-left:3px solid var(--green)">
+        <h4><span style="color:var(--green)">🎯</span> そのユーザーに響くもの</h4>
+        <ul>${resonanceHtml}</ul>
+      </div>
+      <div class="summary-card" style="border-left:3px solid var(--orange)">
+        <h4><span style="color:var(--orange)">⚠️</span> 現在の課題</h4>
+        <ul>${challengesHtml}</ul>
+      </div>
+      <div class="summary-confirm-actions">
+        <button class="btn-proceed" onclick="proceedToDirections()">✓ この分析で進む</button>
+        <button class="btn-revise" onclick="showReviseInput(this)">✎ 修正コメントを入れる</button>
+      </div>
+      <div class="revise-input-wrap">
+        <textarea class="revise-input" rows="2" placeholder="分析の修正コメントを入力..."></textarea>
+        <button class="revise-send" onclick="sendReviseFromButton(this)">修正して再分析</button>
+      </div>
+    </div>`;
+  chat.appendChild(el); scrollBottom();
+}
+
+function showReviseInput(btn) {
+  const wrap = btn.closest('.msg-body').querySelector('.revise-input-wrap');
+  wrap.classList.toggle('show');
+  if (wrap.classList.contains('show')) {
+    wrap.querySelector('.revise-input').focus();
+  }
+}
+
+async function sendReviseFromButton(btn) {
+  const wrap = btn.closest('.revise-input-wrap');
+  const input = wrap.querySelector('.revise-input');
+  const text = input.value.trim();
+  if (!text || isGenerating) return;
+
+  addMsg('user', text);
+  input.value = '';
+  wrap.classList.remove('show');
+
+  isGenerating = true; sendBtn.disabled = true;
+  await sendReviseResearch(text);
+  isGenerating = false; sendBtn.disabled = false;
 }
 
 // --- Messages ---
@@ -780,7 +959,8 @@ async function selectHistory(id) {
 
     activeId = id;
     chat.innerHTML = ''; welcome.style.display = 'none'; chat.appendChild(welcome);
-    updateStepIndicator(data.step || 3);
+    const step = data.step || 3;
+    updateStepIndicator(step);
 
     // Show brief
     addMsg('user', data.brief || '');
@@ -788,15 +968,20 @@ async function selectHistory(id) {
     // Show research
     if (data.research) addResearchMsg(data.research);
 
-    // Show directions
+    // Show summary confirmation if at step 2
+    if (step === 2 && data.summary && typeof data.summary === 'object' && Object.keys(data.summary).length) {
+      addSummaryConfirmation(data.summary);
+    }
+
+    // Show directions if at step 3+
     const dirs = data.directions || [];
-    if (dirs.length) {
+    if (dirs.length && step >= 3) {
       addDirectionsMsg(dirs);
       renderDirections(dirs);
     }
     if (data.research) renderResearchInPanel(data.research);
 
-    if (!dirs.length && !data.research) clearRightPanel();
+    if ((!dirs.length || step < 3) && !data.research) clearRightPanel();
 
     updatePlaceholder();
     document.querySelectorAll('.hi').forEach(el => el.classList.toggle('active', el.dataset.id === id));

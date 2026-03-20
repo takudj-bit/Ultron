@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS projects (
     step                INTEGER NOT NULL DEFAULT 1,
     brief               TEXT NOT NULL DEFAULT '',
     research            TEXT NOT NULL DEFAULT '',
+    summary             TEXT NOT NULL DEFAULT '{}',
     directions          TEXT NOT NULL DEFAULT '[]',
     selected_direction  INTEGER,
     lyrics              TEXT NOT NULL DEFAULT '',
@@ -56,6 +57,7 @@ MIGRATE_SQL = [
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS selected_direction INTEGER",
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS suno_prompt TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '{}'",
 ]
 
 
@@ -97,6 +99,11 @@ def _load_json() -> list[dict]:
                     d["directions"] = json.loads(d["directions"])
                 except Exception:
                     d["directions"] = []
+            if isinstance(d.get("summary"), str):
+                try:
+                    d["summary"] = json.loads(d["summary"])
+                except Exception:
+                    d["summary"] = {}
         return data
     return []
 
@@ -106,13 +113,18 @@ def _save_json(history: list[dict]):
 
 
 def _row_to_dict(row: dict) -> dict:
-    """Convert DB row to API-compatible dict (parse directions JSON)."""
+    """Convert DB row to API-compatible dict (parse JSON fields)."""
     d = dict(row)
     if isinstance(d.get("directions"), str):
         try:
             d["directions"] = json.loads(d["directions"])
         except Exception:
             d["directions"] = []
+    if isinstance(d.get("summary"), str):
+        try:
+            d["summary"] = json.loads(d["summary"])
+        except Exception:
+            d["summary"] = {}
     return d
 
 
@@ -151,10 +163,11 @@ def save_project(entry: dict):
     conn = _get_conn()
     try:
         directions_json = json.dumps(entry.get("directions", []), ensure_ascii=False)
+        summary_json = json.dumps(entry.get("summary", {}), ensure_ascii=False)
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO projects (id, title, created_at, step, brief, research, directions, selected_direction, lyrics, suno_prompt) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO projects (id, title, created_at, step, brief, research, summary, directions, selected_direction, lyrics, suno_prompt) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     entry["id"],
                     entry.get("title", ""),
@@ -162,6 +175,7 @@ def save_project(entry: dict):
                     entry.get("step", 1),
                     entry.get("brief", ""),
                     entry.get("research", ""),
+                    summary_json,
                     directions_json,
                     entry.get("selected_direction"),
                     entry.get("lyrics", ""),
@@ -191,7 +205,7 @@ def update_project(entry_id: str, **fields):
         _save_json(history)
         return
 
-    allowed = {"title", "step", "brief", "research", "directions",
+    allowed = {"title", "step", "brief", "research", "summary", "directions",
                "selected_direction", "lyrics", "suno_prompt"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
@@ -199,6 +213,8 @@ def update_project(entry_id: str, **fields):
 
     if "directions" in updates and not isinstance(updates["directions"], str):
         updates["directions"] = json.dumps(updates["directions"], ensure_ascii=False)
+    if "summary" in updates and not isinstance(updates["summary"], str):
+        updates["summary"] = json.dumps(updates["summary"], ensure_ascii=False)
 
     conn = _get_conn()
     try:
