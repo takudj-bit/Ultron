@@ -1,9 +1,10 @@
 """
-PostgreSQL database layer for Ultron v2.
+PostgreSQL database layer for Ultron v3 — Agent-based chat.
 Falls back to local JSON file when DATABASE_URL is not set (local dev).
 
-5-step workflow schema:
-  ① brief → ② research → ③ directions → ④ select → ⑤ lyrics+suno
+Schema:
+  projects  — brief + research (one-time analysis)
+  messages  — full chat history with optional artifacts
 """
 
 from __future__ import annotations
@@ -26,38 +27,41 @@ def _get_database_url():
 # ---------------------------------------------------------------------------
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS projects (
-    id                  TEXT PRIMARY KEY,
-    title               TEXT NOT NULL DEFAULT '',
-    created_at          TEXT NOT NULL,
-    step                INTEGER NOT NULL DEFAULT 1,
-    brief               TEXT NOT NULL DEFAULT '',
-    research            TEXT NOT NULL DEFAULT '',
-    summary             TEXT NOT NULL DEFAULT '{}',
-    directions          TEXT NOT NULL DEFAULT '[]',
-    selected_direction  INTEGER,
-    lyrics              TEXT NOT NULL DEFAULT '',
-    suno_prompt         TEXT NOT NULL DEFAULT ''
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    brief       TEXT NOT NULL DEFAULT '',
+    research    TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS versions (
-    id          SERIAL PRIMARY KEY,
-    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    label       TEXT NOT NULL,
-    lyrics      TEXT NOT NULL DEFAULT '',
-    parent      TEXT,
-    feedback    TEXT,
-    created_at  TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS messages (
+    id              SERIAL PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL,
+    content         TEXT NOT NULL DEFAULT '',
+    agent           TEXT,
+    artifact_type   TEXT,
+    artifact_json   TEXT,
+    metadata        TEXT NOT NULL DEFAULT '{}',
+    created_at      TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_versions_project ON versions(project_id);
+CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id);
 """
 
 MIGRATE_SQL = [
-    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS step INTEGER NOT NULL DEFAULT 1",
-    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS selected_direction INTEGER",
-    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS suno_prompt TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '{}'",
+    """CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        agent TEXT,
+        artifact_type TEXT,
+        artifact_json TEXT,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id)",
 ]
 
 
@@ -92,19 +96,7 @@ HISTORY_FILE.parent.mkdir(exist_ok=True)
 
 def _load_json() -> list[dict]:
     if HISTORY_FILE.exists():
-        data = json.loads(HISTORY_FILE.read_text("utf-8"))
-        for d in data:
-            if isinstance(d.get("directions"), str):
-                try:
-                    d["directions"] = json.loads(d["directions"])
-                except Exception:
-                    d["directions"] = []
-            if isinstance(d.get("summary"), str):
-                try:
-                    d["summary"] = json.loads(d["summary"])
-                except Exception:
-                    d["summary"] = {}
-        return data
+        return json.loads(HISTORY_FILE.read_text("utf-8"))
     return []
 
 
@@ -112,110 +104,74 @@ def _save_json(history: list[dict]):
     HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), "utf-8")
 
 
-def _row_to_dict(row: dict) -> dict:
-    """Convert DB row to API-compatible dict (parse JSON fields)."""
-    d = dict(row)
-    if isinstance(d.get("directions"), str):
+def _parse_message(msg: dict) -> dict:
+    """Parse JSON strings in a message dict."""
+    m = dict(msg)
+    if isinstance(m.get("artifact_json"), str):
         try:
-            d["directions"] = json.loads(d["directions"])
+            m["artifact"] = json.loads(m["artifact_json"])
         except Exception:
-            d["directions"] = []
-    if isinstance(d.get("summary"), str):
+            m["artifact"] = None
+    else:
+        m["artifact"] = m.get("artifact_json")
+    if isinstance(m.get("metadata"), str):
         try:
-            d["summary"] = json.loads(d["summary"])
+            m["metadata"] = json.loads(m["metadata"])
         except Exception:
-            d["summary"] = {}
-    return d
+            m["metadata"] = {}
+    elif not isinstance(m.get("metadata"), dict):
+        m["metadata"] = {}
+    return m
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Projects
 # ---------------------------------------------------------------------------
-
-def load_history() -> list[dict]:
-    if not _get_database_url():
-        return _load_json()
-
-    conn = _get_conn()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM projects ORDER BY created_at DESC")
-            projects = [_row_to_dict(row) for row in cur.fetchall()]
-            for proj in projects:
-                cur.execute(
-                    "SELECT label, lyrics, parent, feedback, created_at as timestamp "
-                    "FROM versions WHERE project_id = %s ORDER BY id",
-                    (proj["id"],),
-                )
-                proj["versions"] = [dict(r) for r in cur.fetchall()]
-            return projects
-    finally:
-        conn.close()
-
 
 def save_project(entry: dict):
     if not _get_database_url():
+        proj = {
+            "id": entry["id"],
+            "title": entry.get("title", ""),
+            "created_at": entry["created_at"],
+            "brief": entry.get("brief", ""),
+            "research": entry.get("research", ""),
+            "messages": [],
+        }
         history = _load_json()
-        history.insert(0, entry)
+        history.insert(0, proj)
         _save_json(history)
         return
 
     conn = _get_conn()
     try:
-        directions_json = json.dumps(entry.get("directions", []), ensure_ascii=False)
-        summary_json = json.dumps(entry.get("summary", {}), ensure_ascii=False)
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO projects (id, title, created_at, step, brief, research, summary, directions, selected_direction, lyrics, suno_prompt) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (
-                    entry["id"],
-                    entry.get("title", ""),
-                    entry["created_at"],
-                    entry.get("step", 1),
-                    entry.get("brief", ""),
-                    entry.get("research", ""),
-                    summary_json,
-                    directions_json,
-                    entry.get("selected_direction"),
-                    entry.get("lyrics", ""),
-                    entry.get("suno_prompt", ""),
-                ),
+                "INSERT INTO projects (id, title, created_at, brief, research) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                (entry["id"], entry.get("title", ""), entry["created_at"],
+                 entry.get("brief", ""), entry.get("research", "")),
             )
-            for ver in entry.get("versions", []):
-                cur.execute(
-                    "INSERT INTO versions (project_id, label, lyrics, parent, feedback, created_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (entry["id"], ver["label"], ver["lyrics"],
-                     ver.get("parent"), ver.get("feedback"),
-                     ver.get("timestamp", entry["created_at"])),
-                )
     finally:
         conn.close()
 
 
 def update_project(entry_id: str, **fields):
-    """Update arbitrary fields on a project."""
     if not _get_database_url():
         history = _load_json()
         for e in history:
             if e["id"] == entry_id:
-                e.update(fields)
+                for k, v in fields.items():
+                    if k in ("title", "brief", "research"):
+                        e[k] = v
                 break
         _save_json(history)
         return
 
-    allowed = {"title", "step", "brief", "research", "summary", "directions",
-               "selected_direction", "lyrics", "suno_prompt"}
+    allowed = {"title", "brief", "research"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return
-
-    if "directions" in updates and not isinstance(updates["directions"], str):
-        updates["directions"] = json.dumps(updates["directions"], ensure_ascii=False)
-    if "summary" in updates and not isinstance(updates["summary"], str):
-        updates["summary"] = json.dumps(updates["summary"], ensure_ascii=False)
-
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
@@ -230,24 +186,33 @@ def get_project(entry_id: str) -> dict | None:
     if not _get_database_url():
         for e in _load_json():
             if e["id"] == entry_id:
-                return e
+                return {k: v for k, v in e.items() if k != "messages"}
         return None
 
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM projects WHERE id = %s", (entry_id,))
-            row = cur.fetchone()
-            if not row:
-                return None
-            proj = _row_to_dict(row)
             cur.execute(
-                "SELECT label, lyrics, parent, feedback, created_at as timestamp "
-                "FROM versions WHERE project_id = %s ORDER BY id",
+                "SELECT id, title, created_at, brief, research FROM projects WHERE id = %s",
                 (entry_id,),
             )
-            proj["versions"] = [dict(r) for r in cur.fetchall()]
-            return proj
+            row = cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def load_history() -> list[dict]:
+    if not _get_database_url():
+        return [{k: v for k, v in e.items() if k != "messages"} for e in _load_json()]
+
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, title, created_at FROM projects ORDER BY created_at DESC"
+            )
+            return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
 
@@ -267,49 +232,78 @@ def delete_project(entry_id: str):
         conn.close()
 
 
-def add_version(entry_id: str, version: dict, new_lyrics: str):
+# ---------------------------------------------------------------------------
+# Messages
+# ---------------------------------------------------------------------------
+
+def save_message(project_id: str, role: str, content: str,
+                 agent: str | None = None, artifact_type: str | None = None,
+                 artifact=None, metadata: dict | None = None) -> dict:
+    now = datetime.now().isoformat()
+    artifact_str = json.dumps(artifact, ensure_ascii=False) if artifact is not None else None
+    metadata_str = json.dumps(metadata or {}, ensure_ascii=False)
+
+    msg = {
+        "role": role, "content": content, "agent": agent,
+        "artifact_type": artifact_type, "artifact": artifact,
+        "metadata": metadata or {}, "created_at": now,
+    }
+
     if not _get_database_url():
         history = _load_json()
-        for entry in history:
-            if entry["id"] == entry_id:
-                if "versions" not in entry:
-                    entry["versions"] = []
-                entry["versions"].append(version)
-                entry["lyrics"] = new_lyrics
+        for e in history:
+            if e["id"] == project_id:
+                if "messages" not in e:
+                    e["messages"] = []
+                e["messages"].append({
+                    "role": role, "content": content, "agent": agent,
+                    "artifact_type": artifact_type, "artifact_json": artifact_str,
+                    "metadata": metadata_str, "created_at": now,
+                })
                 break
         _save_json(history)
-        return
+        return msg
 
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO versions (project_id, label, lyrics, parent, feedback, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (entry_id, version["label"], version["lyrics"],
-                 version.get("parent"), version.get("feedback"),
-                 version.get("timestamp", datetime.now().isoformat())),
+                "INSERT INTO messages "
+                "(project_id, role, content, agent, artifact_type, artifact_json, metadata, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (project_id, role, content, agent, artifact_type, artifact_str, metadata_str, now),
             )
-            cur.execute("UPDATE projects SET lyrics = %s WHERE id = %s", (new_lyrics, entry_id))
     finally:
         conn.close()
+    return msg
 
 
-def get_versions(entry_id: str) -> list[dict]:
+def get_messages(project_id: str) -> list[dict]:
     if not _get_database_url():
         for e in _load_json():
-            if e["id"] == entry_id:
-                return e.get("versions", [])
+            if e["id"] == project_id:
+                return [_parse_message(m) for m in e.get("messages", [])]
         return []
 
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT label, lyrics, parent, feedback, created_at as timestamp "
-                "FROM versions WHERE project_id = %s ORDER BY id",
-                (entry_id,),
+                "SELECT role, content, agent, artifact_type, artifact_json, metadata, created_at "
+                "FROM messages WHERE project_id = %s ORDER BY id ASC",
+                (project_id,),
             )
-            return [dict(r) for r in cur.fetchall()]
+            return [_parse_message(dict(row)) for row in cur.fetchall()]
     finally:
         conn.close()
+
+
+def get_latest_artifacts(project_id: str) -> dict:
+    """Return the most recent artifact of each type: {directions: ..., lyrics: ..., suno: ...}"""
+    messages = get_messages(project_id)
+    artifacts: dict = {}
+    for msg in reversed(messages):
+        atype = msg.get("artifact_type")
+        if atype and atype not in artifacts:
+            artifacts[atype] = msg.get("artifact")
+    return artifacts

@@ -1,11 +1,19 @@
 """
-Ultron v2 — 音楽プロデューサー向け制作ワークフロー (5-Step)
+Ultron v3 — Agent-based music production chat
 
-① クライアント企画書インプット
-② Perplexity deep-research → サマリー確認フェーズ
-③ Claude extended thinking → 方向性候補を3〜5個提示
-④ ユーザーが方向性を選択（未実装）
-⑤ Sunoプロンプト＋歌詞候補生成（未実装）
+Architecture:
+  Phase 1: Brief → Perplexity research + Claude verification (auto)
+  Phase 2: Free chat → Intent detection (Haiku) → Agent routing
+
+Agents & Models:
+  - Intent detection:  Claude Haiku
+  - Title generation:  Claude Haiku
+  - Research:          Perplexity (sonar-deep-research → sonar → Claude fallback)
+  - Verification:      Claude Sonnet
+  - Direction agent:   Claude Sonnet (extended thinking)
+  - Lyrics agent:      GPT-4o
+  - Suno agent:        GPT-4o
+  - General agent:     Claude Sonnet
 """
 
 from __future__ import annotations
@@ -32,13 +40,17 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import db  # noqa: E402
 
-app = FastAPI(title="Ultron v2 — 制作ワークフロー")
+app = FastAPI(title="Ultron v3 — Agent Chat")
 
 
 @app.on_event("startup")
 async def startup():
     db.init_db()
 
+
+# ========================================================================
+# API Clients
+# ========================================================================
 
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 perplexity_client = OpenAI(
@@ -58,29 +70,22 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
         tmp_path = tmp.name
     try:
         doc = fitz.open(tmp_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
+        text = "".join(page.get_text() for page in doc)
         doc.close()
         return text
     finally:
         os.unlink(tmp_path)
 
 
-def _clean_brief_for_title(brief: str) -> str:
-    text = re.sub(r'https?://\S+', '', brief)
-    text = re.sub(r'[_*#\-=]{2,}', '', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text[:300]
-
-
 def generate_title(brief: str) -> str:
-    cleaned = _clean_brief_for_title(brief)
+    """Claude Haiku — タイトル生成"""
+    cleaned = re.sub(r'https?://\S+', '', brief)
+    cleaned = re.sub(r'[_*#\-=]{2,}', '', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()[:300]
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=20,
-            temperature=0.3,
+        response = claude_client.messages.create(
+            model="claude-haiku-4-20250414",
+            max_tokens=30,
             messages=[{
                 "role": "user",
                 "content": (
@@ -91,44 +96,35 @@ def generate_title(brief: str) -> str:
                 ),
             }],
         )
-        title = response.choices[0].message.content.strip().strip("「」『』\"")
+        title = response.content[0].text.strip().strip("「」『』\"")
         return title[:15] if title else brief[:40].replace("\n", " ")
     except Exception:
         return brief[:40].replace("\n", " ")
 
 
-def _parse_directions_json(raw: str) -> list[dict]:
-    """Claude/GPTの出力からJSON配列をパースする"""
+def _parse_json_from_text(raw: str) -> dict | list | None:
+    """Extract JSON from text that may contain markdown fences."""
     try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict):
-            for key in ("directions", "candidates", "options", "items"):
-                if key in parsed and isinstance(parsed[key], list):
-                    return parsed[key]
-            if all(isinstance(v, dict) for v in parsed.values()):
-                return list(parsed.values())
-            return [parsed]
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    match = re.search(r'\[.*\]', raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
-    match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', raw, re.DOTALL)
+    match = re.search(r'```(?:json)?\s*([\[{].*?[\]}])\s*```', raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
-    return [{"title": "解析エラー", "concept": raw[:500], "reference": "", "mood": "", "hook": "", "risk": ""}]
+    match = re.search(r'[\[{].*[\]}]', raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+    return None
 
 
 # ========================================================================
-# Step ② — Perplexity Deep Research
+# Phase 1: Research + Verification
 # ========================================================================
 
 RESEARCH_SYSTEM_PROMPT = """\
@@ -148,47 +144,34 @@ RESEARCH_SYSTEM_PROMPT = """\
 - ファンの感情的な反応傾向（何に共感し、どこで熱狂するか）
 - ファンのSNS行動パターン（推し活・二次創作・ミーム・拡散行動）
 - リスナーがこのアーティストに求めているもの
-- ライブ/イベントでの反応の特徴
 
 【3. そのユーザー層に響くものは何か？】
 - 音楽的特徴: BPM帯、サウンド、曲構成、プロダクションの傾向
 - 歌詞テーマ: どんな言葉・メッセージ・ストーリーが刺さるか
-- ビジュアル/MV傾向: 世界観、色味、演出で反応が良いもの
 - SNSでバイラルした曲の共通要素
-- 類似アーティストのヒット曲で参考になるもの（曲名・理由を添えて）
+- 類似アーティストのヒット曲で参考になるもの
 
 【4. このアーティストの課題は何か？】
 - 弱み: ファンや批評家から指摘されている点
-- 伸びしろ: まだ攻められていない領域・ジャンル・層
-- 競合との差: 同ジャンルの他アーティストとの比較で負けている点
-- リスク: 避けるべき方向性・飽和している領域
+- 伸びしろ: まだ攻められていない領域・層
+- 競合との差: 同ジャンルの他アーティストとの比較
 - 次の一手として狙えるポジション
 
 ルール:
-- 企画書内のアーティスト名を正確に読み取って調査する
-- 具体的な曲名・アーティスト名・数字を挙げて根拠を示す
-- 数字（再生数、チャート順位、フォロワー数等）を可能な限り含める
+- 具体的な曲名・数字を挙げて根拠を示す
 - 日本語で回答
-- 各セクションを見出しで明確に分ける
-- 推測と事実を区別する（「推定」「不明」と明記）
 """
 
 
 def deep_research(brief: str) -> str:
-    """Perplexity research: deep-research → sonar → Claude フォールバック"""
+    """Perplexity research: sonar-deep-research → sonar → Claude fallback"""
     for model in ("sonar-deep-research", "sonar"):
         try:
             response = perplexity_client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            "以下の企画書からアーティスト名を読み取り、4項目を調査してください:\n\n"
-                            f"{brief}"
-                        ),
-                    },
+                    {"role": "user", "content": f"以下の企画書からアーティスト名を読み取り、4項目を調査してください:\n\n{brief}"},
                 ],
             )
             result = response.choices[0].message.content
@@ -197,6 +180,7 @@ def deep_research(brief: str) -> str:
         except Exception:
             continue
 
+    # Claude fallback
     try:
         response = claude_client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -206,19 +190,45 @@ def deep_research(brief: str) -> str:
                 "content": (
                     f"{RESEARCH_SYSTEM_PROMPT}\n\n"
                     "※注意: Web検索は使えません。知識ベースに基づいて分析してください。\n\n"
-                    "以下の企画書からアーティスト名を読み取り、4項目を調査してください:\n\n"
-                    f"{brief}"
+                    f"以下の企画書から調査してください:\n\n{brief}"
                 ),
             }],
         )
-        return "[model: claude-sonnet (Perplexity quota exceeded)]\n\n" + response.content[0].text
+        return "[model: claude-sonnet (Perplexity unavailable)]\n\n" + response.content[0].text
     except Exception as e:
         raise RuntimeError(f"全リサーチモデルが失敗: {str(e)}")
 
 
-# ========================================================================
-# Step ②' — リサーチ結果のサマリー生成
-# ========================================================================
+VERIFICATION_PROMPT = """\
+あなたは音楽戦略コンサルタントです。
+Perplexityによるリサーチ結果を検証し、プロデューサー向けの戦略ブリーフィングを行ってください。
+
+以下を含めてください:
+1. リサーチの信頼性評価（データの裏付けがある点、推測に過ぎない点）
+2. 戦略的に最も重要な発見3つ
+3. リサーチで見落とされている可能性がある視点
+4. 今すぐ使えるアクションヒント
+
+文体: 簡潔、戦略的、データドリブン。箇条書きベースで。
+"""
+
+
+def verify_research(brief: str, research: str) -> str:
+    """Claude Sonnet — リサーチ結果を検証・分析"""
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"{VERIFICATION_PROMPT}\n\n"
+                f"【企画書】\n{brief}\n\n"
+                f"【Perplexityリサーチ結果】\n{research}"
+            ),
+        }],
+    )
+    return response.content[0].text
+
 
 SUMMARY_PROMPT = """\
 リサーチ結果を以下の3項目に要約してください。
@@ -231,16 +241,12 @@ SUMMARY_PROMPT = """\
   "challenges": ["課題・伸びしろのポイント1", "ポイント2", ...]
 }
 
-ルール:
-- 各項目は最大5個まで
-- 1つのポイントは1〜2文
-- JSON のみ出力。説明文は不要
-- 日本語で書く
+JSON のみ出力。日本語で書く。
 """
 
 
 def generate_summary(research: str) -> dict:
-    """リサーチ結果を3項目サマリーに要約"""
+    """GPT-4o-mini — リサーチをJSON要約"""
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -263,131 +269,143 @@ def generate_summary(research: str) -> dict:
 
 
 # ========================================================================
-# Step ③ — Claude Extended Thinking → 方向性候補の生成
+# Intent Detection — Claude Haiku
 # ========================================================================
 
-DIRECTIONS_PROMPT = """\
-あなたは音楽プロデューサーの戦略パートナーです。
+INTENT_KEYWORDS = {
+    "direction": ["方向性", "方向", "コンセプト", "候補", "提案して", "アイデア", "どんな曲"],
+    "lyrics": ["歌詞", "リリック", "lyrics", "書いて", "作詞"],
+    "suno": ["suno", "sunoプロンプト", "プロンプト作", "音楽生成"],
+}
 
+
+def detect_intent(message: str, recent_messages: list[dict] | None = None) -> str:
+    """Claude Haiku — ユーザーの意図を判定"""
+    msg_lower = message.lower()
+
+    # Fast path: keyword matching
+    for intent, keywords in INTENT_KEYWORDS.items():
+        if any(k in msg_lower for k in keywords):
+            return intent
+
+    # Slow path: Haiku classification
+    try:
+        context = ""
+        if recent_messages:
+            last_3 = recent_messages[-3:]
+            context = "\n".join(f"{m['role']}: {m['content'][:100]}" for m in last_3)
+            context = f"\n\n最近の会話:\n{context}"
+
+        response = claude_client.messages.create(
+            model="claude-haiku-4-20250414",
+            max_tokens=20,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "ユーザーのメッセージの意図を1単語で分類してください:\n"
+                    "- direction: 曲の方向性・コンセプト・ジャンルについて\n"
+                    "- lyrics: 歌詞の作成・修正\n"
+                    "- suno: Suno音楽生成プロンプトの作成\n"
+                    "- general: その他\n\n"
+                    f"メッセージ: {message}{context}\n\n"
+                    "出力（1単語のみ）:"
+                ),
+            }],
+        )
+        result = response.content[0].text.strip().lower()
+        if result in ("direction", "lyrics", "suno", "general"):
+            return result
+    except Exception:
+        pass
+    return "general"
+
+
+# ========================================================================
+# Agents
+# ========================================================================
+
+def _build_context(project: dict, messages: list[dict], artifacts: dict) -> str:
+    """全エージェント共通のコンテキストを構築"""
+    parts = [f"【企画書】\n{project.get('brief', '')}"]
+    if project.get("research"):
+        parts.append(f"【リサーチ結果】\n{project['research'][:3000]}")
+    if artifacts.get("directions"):
+        dirs_text = json.dumps(artifacts["directions"], ensure_ascii=False, indent=1)
+        parts.append(f"【現在の方向性候補】\n{dirs_text}")
+    if artifacts.get("lyrics"):
+        lyrics_data = artifacts["lyrics"]
+        lyrics_text = lyrics_data.get("lyrics", "") if isinstance(lyrics_data, dict) else str(lyrics_data)
+        parts.append(f"【現在の歌詞】\n{lyrics_text[:2000]}")
+    if artifacts.get("suno"):
+        suno_data = artifacts["suno"]
+        suno_text = suno_data.get("prompt", "") if isinstance(suno_data, dict) else str(suno_data)
+        parts.append(f"【現在のSunoプロンプト】\n{suno_text}")
+    # Recent chat (last 10)
+    if messages:
+        recent = messages[-10:]
+        chat_text = "\n".join(f"{'ユーザー' if m['role']=='user' else 'アシスタント'}: {m['content'][:200]}" for m in recent)
+        parts.append(f"【最近の会話】\n{chat_text}")
+    return "\n\n".join(parts)
+
+
+# --- Direction Agent: Claude Sonnet + Extended Thinking ---
+
+DIRECTION_PROMPT = """\
+あなたは音楽プロデューサーの戦略パートナーです。
 企画書とリサーチ結果を深く分析し、曲の方向性候補を3〜5個提案してください。
 
-思考プロセス:
-1. まずリサーチ結果の重要ポイントを整理する
-2. アーティストの強みとIPの特性の交差点を見つける
-3. ターゲットリスナーの嗜好とトレンドを考慮する
-4. 各候補が明確に異なるリスク/リターンのバランスを持つようにする
-5. 「なぜこの方向性がハマるか」の根拠をリサーチから導く
+各候補は明確に異なるアプローチにする（安全策/挑戦的/トレンド乗り/意外性など）。
+リサーチの具体的なデータや事例を根拠に使う。
 
-最終出力は以下のJSON配列のみ（思考過程は出力しない）:
+出力フォーマット — JSON配列のみ:
 ```json
 [
   {
     "title": "方向性の名前（10文字以内）",
-    "concept": "コンセプトの説明（3-4文。なぜこの方向性が有効かの根拠を含む）",
-    "reference": "参考曲: アーティスト名「曲名」など2-3曲（なぜ参考になるか一言添える）",
-    "mood": "ムード・トーンのキーワード（3-5個、カンマ区切り）",
-    "hook": "この方向性の核となるフック・差別化ポイント（1-2文）",
-    "risk": "リスクや注意点（1-2文）",
-    "bpm_range": "想定BPM帯（例: 128-140）",
-    "vocal_direction": "ボーカルの方向性（例: エモーショナルなファルセット、ラップとの掛け合いなど）"
-  }
-]
-```
-
-ルール:
-- 必ず3〜5個の候補を出す
-- 各候補は明確に異なるアプローチにする（安全策/挑戦的/トレンド乗り/意外性/ハイブリッドなど）
-- リサーチの具体的なデータや事例を根拠に使う
-- JSON配列のみ出力。思考過程やコメントはJSON外に出さない
-- 日本語で書く
-"""
-
-
-def generate_directions(brief: str, research: str) -> tuple[list[dict], str]:
-    """Claude extended thinkingで方向性候補を生成。(directions, thinking)を返す"""
-    response = claude_client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=16000,
-        thinking={"type": "enabled", "budget_tokens": 10000},
-        messages=[{
-            "role": "user",
-            "content": (
-                f"{DIRECTIONS_PROMPT}\n\n"
-                f"【企画書】\n{brief}\n\n"
-                f"【リサーチ結果】\n{research}\n\n"
-                "これらを深く分析した上で、曲の方向性候補をJSON配列で提案してください。"
-            ),
-        }],
-    )
-    thinking_text = ""
-    output_text = ""
-    for block in response.content:
-        if block.type == "thinking":
-            thinking_text = block.thinking
-        elif block.type == "text":
-            output_text = block.text
-    return _parse_directions_json(output_text), thinking_text
-
-
-# ========================================================================
-# Step ③' — 反論を受けてリファイン
-# ========================================================================
-
-REFINE_PROMPT = """\
-あなたは音楽プロデューサーの戦略パートナーです。
-前回提案した方向性候補に対して、プロデューサーからフィードバック（反論・追加要望・修正指示）が来ました。
-
-思考プロセス:
-1. フィードバックの本質を読み取る（表面的な言葉の裏にある意図）
-2. 現在の候補のどこが良くてどこがダメかを判断する
-3. リサーチデータで裏付けながら、新しい候補を考える
-4. プロデューサーの感覚を尊重しつつ、データに基づく反論があれば提示する
-
-最終出力は以下のJSON配列のみ:
-```json
-[
-  {
-    "title": "方向性の名前（10文字以内、大幅変更なら末尾に★）",
-    "concept": "コンセプトの説明（3-4文）",
-    "reference": "参考曲: アーティスト名「曲名」など2-3曲",
-    "mood": "ムード・トーンのキーワード（3-5個、カンマ区切り）",
-    "hook": "この方向性の核となるフック・差別化ポイント（1-2文）",
-    "risk": "リスクや注意点（1-2文）",
+    "concept": "コンセプト説明（3-4文。根拠を含む）",
+    "reference": "参考曲2-3曲",
+    "mood": "ムードキーワード（3-5個、カンマ区切り）",
+    "hook": "フック・差別化ポイント（1-2文）",
+    "risk": "リスク・注意点（1-2文）",
     "bpm_range": "想定BPM帯",
     "vocal_direction": "ボーカルの方向性"
   }
 ]
 ```
+JSON配列のみ出力。日本語で書く。
+"""
+
+DIRECTION_REFINE_PROMPT = """\
+あなたは音楽プロデューサーの戦略パートナーです。
+前回の方向性候補に対してフィードバックが来ました。
+フィードバックを踏まえて方向性候補を改善・再提案してください。
 
 ルール:
 - 必ず3〜5個の候補を出す
 - フィードバックの指摘を的確に反映する
-- 良い候補はベースを残しつつ改善、ダメな候補は入れ替える
 - 大きく変えた候補のtitleには末尾に「★」を付ける
-- JSON配列のみ出力
-- 日本語で書く
+- JSON配列のみ出力。日本語で書く。
+
+同じJSON形式で出力してください。
 """
 
 
-def refine_directions(brief: str, research: str, current_directions: list[dict], feedback: str) -> tuple[list[dict], str]:
-    """Claude extended thinkingで方向性をリファイン"""
-    dirs_text = json.dumps(current_directions, ensure_ascii=False, indent=2)
+def run_direction_agent(project: dict, messages: list[dict], artifacts: dict, user_message: str) -> dict:
+    """Claude Sonnet + Extended Thinking → 方向性候補"""
+    has_existing = bool(artifacts.get("directions"))
+    prompt = DIRECTION_REFINE_PROMPT if has_existing else DIRECTION_PROMPT
+    context = _build_context(project, messages, artifacts)
+
     response = claude_client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=16000,
         thinking={"type": "enabled", "budget_tokens": 10000},
         messages=[{
             "role": "user",
-            "content": (
-                f"{REFINE_PROMPT}\n\n"
-                f"【企画書】\n{brief}\n\n"
-                f"【リサーチ結果】\n{research}\n\n"
-                f"【前回の方向性候補】\n{dirs_text}\n\n"
-                f"【プロデューサーのフィードバック】\n{feedback}\n\n"
-                "フィードバックを深く分析した上で、方向性候補を改善・再提案してください。JSON配列のみ出力。"
-            ),
+            "content": f"{prompt}\n\n{context}\n\n【ユーザーのリクエスト】\n{user_message}",
         }],
     )
+
     thinking_text = ""
     output_text = ""
     for block in response.content:
@@ -395,19 +413,199 @@ def refine_directions(brief: str, research: str, current_directions: list[dict],
             thinking_text = block.thinking
         elif block.type == "text":
             output_text = block.text
-    return _parse_directions_json(output_text), thinking_text
+
+    parsed = _parse_json_from_text(output_text)
+    if isinstance(parsed, list):
+        directions = parsed
+    elif isinstance(parsed, dict):
+        for key in ("directions", "candidates", "items"):
+            if key in parsed and isinstance(parsed[key], list):
+                directions = parsed[key]
+                break
+        else:
+            directions = [parsed]
+    else:
+        directions = [{"title": "解析エラー", "concept": output_text[:500], "reference": "", "mood": "", "hook": "", "risk": ""}]
+
+    n = len(directions)
+    action = "更新" if has_existing else "提案"
+    content = f"🎯 方向性を{n}案{action}しました。右パネルで確認してください。"
+
+    return {
+        "content": content,
+        "agent": "direction",
+        "artifact_type": "directions",
+        "artifact": directions,
+        "metadata": {"thinking": thinking_text, "model": "claude-sonnet-4 (extended thinking)"},
+    }
+
+
+# --- Lyrics Agent: GPT-4o ---
+
+LYRICS_PROMPT = """\
+あなたはプロの作詞家です。
+企画書、リサーチ、方向性のコンテキストを踏まえて、曲の歌詞を書いてください。
+
+出力フォーマット（JSON）:
+{
+    "title": "曲のタイトル",
+    "lyrics": "歌詞全文（[Verse 1], [Chorus] 等のセクションラベル付き）",
+    "structure": "曲の構成（例: Verse1 / Chorus / Verse2 / Chorus / Bridge / Chorus）",
+    "notes": "作詞ノート（狙い、韻の工夫、感情の起伏の説明）"
+}
+
+ルール:
+- セクションラベルを必ず付ける（[Verse 1], [Pre-Chorus], [Chorus], [Bridge] 等）
+- 感情の起伏を意識した構成にする
+- 韻を踏む箇所を意識する
+- ターゲットリスナーに刺さる言葉を選ぶ
+- JSON のみ出力
+- 日本語で書く（英語パートがある場合はその旨記載）
+"""
+
+
+def run_lyrics_agent(project: dict, messages: list[dict], artifacts: dict, user_message: str) -> dict:
+    """GPT-4o → 歌詞生成"""
+    context = _build_context(project, messages, artifacts)
+    has_existing = bool(artifacts.get("lyrics"))
+
+    system = LYRICS_PROMPT
+    if has_existing:
+        system += "\n\n前回の歌詞に対するフィードバックが来ています。フィードバックを反映して歌詞を修正してください。"
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{context}\n\n【ユーザーのリクエスト】\n{user_message}"},
+        ],
+        temperature=0.8,
+        response_format={"type": "json_object"},
+    )
+
+    raw = response.choices[0].message.content
+    parsed = _parse_json_from_text(raw)
+    if not isinstance(parsed, dict):
+        parsed = {"title": "", "lyrics": raw, "structure": "", "notes": ""}
+
+    action = "修正" if has_existing else "生成"
+    title_part = f"「{parsed.get('title', '')}」" if parsed.get("title") else ""
+    content = f"✍️ 歌詞を{action}しました{title_part}。右パネルで確認してください。"
+    if parsed.get("notes"):
+        content += f"\n\n📝 {parsed['notes']}"
+
+    return {
+        "content": content,
+        "agent": "lyrics",
+        "artifact_type": "lyrics",
+        "artifact": parsed,
+        "metadata": {"model": "gpt-4o"},
+    }
+
+
+# --- Suno Agent: GPT-4o ---
+
+SUNO_PROMPT = """\
+あなたはSunoの音楽生成プロンプトの専門家です。
+企画のコンテキストを踏まえて、最適なSunoプロンプトを作成してください。
+
+出力フォーマット（JSON）:
+{
+    "style": "Style of Music（英語で。ジャンル、ムード、楽器を含む詳細な説明）",
+    "title": "曲のタイトル",
+    "tags": ["tag1", "tag2", ...],
+    "lyrics": "Suno用フォーマットの歌詞（[Verse], [Chorus], [Bridge], [Outro] 等のタグ付き）",
+    "negative_tags": ["避けるスタイル1", ...],
+    "notes": "プロンプト設計ノート（なぜこのスタイルを選んだか）"
+}
+
+ルール:
+- style は英語で、具体的かつ詳細に記述（30〜60語）
+- tags は英語で5〜10個
+- 歌詞がある場合はSunoフォーマット（[Verse], [Chorus]等）に変換
+- 歌詞がない場合は [Instrumental] と記載
+- negative_tags で避けるべきスタイルを明記
+- JSON のみ出力
+"""
+
+
+def run_suno_agent(project: dict, messages: list[dict], artifacts: dict, user_message: str) -> dict:
+    """GPT-4o → Sunoプロンプト生成"""
+    context = _build_context(project, messages, artifacts)
+    has_existing = bool(artifacts.get("suno"))
+
+    system = SUNO_PROMPT
+    if has_existing:
+        system += "\n\n前回のSunoプロンプトに対するフィードバックが来ています。修正してください。"
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{context}\n\n【ユーザーのリクエスト】\n{user_message}"},
+        ],
+        temperature=0.7,
+        response_format={"type": "json_object"},
+    )
+
+    raw = response.choices[0].message.content
+    parsed = _parse_json_from_text(raw)
+    if not isinstance(parsed, dict):
+        parsed = {"style": raw, "title": "", "tags": [], "lyrics": "", "negative_tags": [], "notes": ""}
+
+    action = "更新" if has_existing else "生成"
+    content = f"🎵 Sunoプロンプトを{action}しました。右パネルで確認してください。"
+    if parsed.get("notes"):
+        content += f"\n\n💡 {parsed['notes']}"
+
+    return {
+        "content": content,
+        "agent": "suno",
+        "artifact_type": "suno",
+        "artifact": parsed,
+        "metadata": {"model": "gpt-4o"},
+    }
+
+
+# --- General Agent: Claude Sonnet ---
+
+def run_general_agent(project: dict, messages: list[dict], artifacts: dict, user_message: str) -> dict:
+    """Claude Sonnet — 一般的な質問に回答"""
+    context = _build_context(project, messages, artifacts)
+
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        system=(
+            "あなたは音楽プロデューサーの戦略パートナーです。"
+            "プロジェクトのコンテキストを踏まえて、簡潔かつ実用的に回答してください。"
+            "必要に応じて方向性・歌詞・Sunoプロンプトの生成を提案してください。"
+        ),
+        messages=[{
+            "role": "user",
+            "content": f"{context}\n\n【質問】\n{user_message}",
+        }],
+    )
+
+    return {
+        "content": response.content[0].text,
+        "agent": "general",
+        "artifact_type": None,
+        "artifact": None,
+        "metadata": {"model": "claude-sonnet-4"},
+    }
 
 
 # ========================================================================
 # API Endpoints
 # ========================================================================
 
-@app.post("/api/generate")
-async def generate(
+@app.post("/api/analyze")
+async def analyze(
     file: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
 ):
-    """Steps ①②: 企画書 → リサーチ → サマリー確認フェーズで止まる"""
+    """Phase 1: 企画書 → リサーチ + 検証 + サマリー"""
     brief = None
     if file and file.filename:
         file_bytes = await file.read()
@@ -422,137 +620,112 @@ async def generate(
         return JSONResponse(status_code=400, content={"error": "ファイルまたはテキストを入力してください"})
 
     try:
+        # 1. Title (Haiku)
+        title = generate_title(brief)
+
+        # 2. Research (Perplexity)
         research = deep_research(brief)
+
+        # 3. Verification (Claude Sonnet)
+        verification = verify_research(brief, research)
+
+        # 4. Summary (GPT-4o-mini)
         summary = generate_summary(research)
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"リサーチ中にエラー: {str(e)}"})
+        return JSONResponse(status_code=500, content={"error": f"分析中にエラー: {str(e)}"})
 
+    # Save project
     now = datetime.now().isoformat()
-    title = generate_title(brief)
+    project_id = str(uuid.uuid4())
     entry = {
-        "id": str(uuid.uuid4()),
+        "id": project_id,
         "title": title,
         "created_at": now,
-        "step": 2,
         "brief": brief,
         "research": research,
-        "summary": summary,
-        "directions": [],
-        "selected_direction": None,
-        "lyrics": "",
-        "suno_prompt": "",
     }
     db.save_project(entry)
 
+    # Save initial messages
+    db.save_message(project_id, "user", brief[:500] + ("..." if len(brief) > 500 else ""))
+    analysis_msg = db.save_message(
+        project_id, "assistant", verification,
+        agent="research",
+        metadata={"summary": summary, "model": "perplexity + claude-sonnet"},
+    )
+
     return {
-        "id": entry["id"],
-        "title": title,
-        "brief": brief[:500] + ("..." if len(brief) > 500 else ""),
+        "project": {"id": project_id, "title": title, "created_at": now, "brief": brief},
         "research": research,
+        "verification": verification,
         "summary": summary,
-        "step": 2,
+        "messages": [
+            {"role": "user", "content": brief[:500] + ("..." if len(brief) > 500 else "")},
+            {
+                "role": "assistant", "content": verification,
+                "agent": "research",
+                "metadata": {"summary": summary, "model": "perplexity + claude-sonnet"},
+            },
+        ],
     }
 
 
-class ProceedRequest(BaseModel):
-    entry_id: str
+class ChatRequest(BaseModel):
+    project_id: str
+    message: str
 
 
-@app.post("/api/proceed")
-async def proceed(req: ProceedRequest):
-    """サマリー確認OK → Step③ 方向性候補を生成"""
-    entry = db.get_project(req.entry_id)
-    if not entry:
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    """Phase 2: ユーザーメッセージ → Intent検出 → Agent実行"""
+    project = db.get_project(req.project_id)
+    if not project:
         return JSONResponse(status_code=404, content={"error": "プロジェクトが見つかりません"})
 
-    brief = entry.get("brief", "")
-    research = entry.get("research", "")
+    # Save user message
+    db.save_message(req.project_id, "user", req.message)
 
+    # Load context
+    messages = db.get_messages(req.project_id)
+    artifacts = db.get_latest_artifacts(req.project_id)
+
+    # Detect intent
+    intent = detect_intent(req.message, messages)
+
+    # Route to agent
     try:
-        directions, thinking = generate_directions(brief, research)
+        if intent == "direction":
+            result = run_direction_agent(project, messages, artifacts, req.message)
+        elif intent == "lyrics":
+            result = run_lyrics_agent(project, messages, artifacts, req.message)
+        elif intent == "suno":
+            result = run_suno_agent(project, messages, artifacts, req.message)
+        else:
+            result = run_general_agent(project, messages, artifacts, req.message)
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"方向性生成エラー: {str(e)}"})
+        error_msg = f"エージェントエラー ({intent}): {str(e)}"
+        db.save_message(req.project_id, "assistant", error_msg, agent=intent)
+        return JSONResponse(status_code=500, content={"error": error_msg})
 
-    db.update_project(req.entry_id, step=3, directions=directions)
+    # Save assistant message
+    db.save_message(
+        req.project_id, "assistant", result["content"],
+        agent=result["agent"],
+        artifact_type=result.get("artifact_type"),
+        artifact=result.get("artifact"),
+        metadata=result.get("metadata"),
+    )
 
     return {
-        "directions": directions,
-        "thinking": thinking,
-        "step": 3,
+        "message": {
+            "role": "assistant",
+            "content": result["content"],
+            "agent": result["agent"],
+            "artifact_type": result.get("artifact_type"),
+            "artifact": result.get("artifact"),
+            "metadata": result.get("metadata", {}),
+        },
     }
-
-
-class ReviseResearchRequest(BaseModel):
-    entry_id: str
-    feedback: str
-
-
-@app.post("/api/revise-research")
-async def revise_research(req: ReviseResearchRequest):
-    """サマリーへの修正コメントを受けてリサーチ補足→サマリー再生成"""
-    entry = db.get_project(req.entry_id)
-    if not entry:
-        return JSONResponse(status_code=404, content={"error": "プロジェクトが見つかりません"})
-
-    research = entry.get("research", "")
-
-    try:
-        # Claudeでリサーチを補足・修正
-        response = claude_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=6000,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "以下はアーティストのリサーチ結果です。\n"
-                    "プロデューサーから修正コメントが来ました。\n"
-                    "コメントを踏まえてリサーチ結果を補足・修正してください。\n"
-                    "元のリサーチの良い部分は残しつつ、指摘された点を改善してください。\n"
-                    "修正後のリサーチ全文を出力してください。\n\n"
-                    f"【元のリサーチ】\n{research}\n\n"
-                    f"【修正コメント】\n{req.feedback}"
-                ),
-            }],
-        )
-        revised_research = response.content[0].text
-        summary = generate_summary(revised_research)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"リサーチ修正エラー: {str(e)}"})
-
-    db.update_project(req.entry_id, research=revised_research, summary=summary)
-
-    return {
-        "research": revised_research,
-        "summary": summary,
-        "step": 2,
-    }
-
-
-class RefineRequest(BaseModel):
-    entry_id: str
-    feedback: str
-
-
-@app.post("/api/refine")
-async def refine(req: RefineRequest):
-    """方向性候補への反論・フィードバックを受けてリファイン"""
-    entry = db.get_project(req.entry_id)
-    if not entry:
-        return JSONResponse(status_code=404, content={"error": "プロジェクトが見つかりません"})
-
-    try:
-        new_dirs, thinking = refine_directions(
-            entry.get("brief", ""),
-            entry.get("research", ""),
-            entry.get("directions", []),
-            req.feedback,
-        )
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"リファイン中にエラー: {str(e)}"})
-
-    db.update_project(req.entry_id, directions=new_dirs)
-
-    return {"directions": new_dirs, "thinking": thinking, "feedback": req.feedback}
 
 
 # ========================================================================
@@ -566,30 +739,22 @@ async def get_history():
 
 @app.get("/api/history/{entry_id}")
 async def get_history_entry(entry_id: str):
-    entry = db.get_project(entry_id)
-    if entry:
-        return entry
-    return JSONResponse(status_code=404, content={"error": "見つかりません"})
+    project = db.get_project(entry_id)
+    if not project:
+        return JSONResponse(status_code=404, content={"error": "見つかりません"})
+    messages = db.get_messages(entry_id)
+    artifacts = db.get_latest_artifacts(entry_id)
+    return {
+        "project": project,
+        "messages": messages,
+        "artifacts": artifacts,
+    }
 
 
 @app.delete("/api/history/{entry_id}")
 async def delete_history_entry(entry_id: str):
     db.delete_project(entry_id)
     return {"ok": True}
-
-
-@app.post("/api/history/regenerate-titles")
-async def regenerate_titles():
-    history = db.load_history()
-    updated = 0
-    for entry in history:
-        brief = entry.get("brief", "")
-        if brief:
-            new_title = generate_title(brief)
-            if new_title and new_title != entry.get("title"):
-                db.update_project(entry["id"], title=new_title)
-                updated += 1
-    return {"updated": updated, "total": len(history)}
 
 
 # ========================================================================

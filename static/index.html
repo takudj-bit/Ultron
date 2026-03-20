@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ULTRON v2</title>
+<title>ULTRON v3</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#0c0c0f;--surface:#16161a;--surface2:#1e1e24;
   --border:#2a2a32;--text:#e0e0e6;--text-dim:#888894;
   --accent:#8b5cf6;--accent-glow:#8b5cf640;
-  --green:#22c55e;--red:#ef4444;--orange:#f59e0b;--blue:#3b82f6;
+  --green:#22c55e;--red:#ef4444;--orange:#f59e0b;--blue:#3b82f6;--pink:#ec4899;
   --sidebar-w:240px;
 }
 html,body{height:100%}
@@ -58,10 +58,6 @@ body.resizing .resize-handle{pointer-events:auto}
 .hi.active{background:var(--surface2);border-left-color:var(--accent)}
 .hi .t{font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
 .hi .d{font-size:.65rem;color:var(--text-dim)}
-.hi .step-badge{
-  display:inline-block;font-size:.55rem;padding:1px 4px;border-radius:3px;
-  background:var(--accent);color:#fff;margin-left:4px;vertical-align:middle;
-}
 .hi .x{
   position:absolute;right:6px;top:50%;transform:translateY(-50%);
   display:none;background:none;border:none;color:var(--red);cursor:pointer;font-size:.8rem;padding:2px;
@@ -79,26 +75,6 @@ body.resizing .resize-handle{pointer-events:auto}
 .topbar h1{font-size:1.1rem;font-weight:700;letter-spacing:.12em;color:var(--accent)}
 .topbar span{font-size:.7rem;color:var(--text-dim)}
 
-/* Step indicator */
-.steps-bar{
-  display:flex;justify-content:center;gap:0;padding:6px 16px 2px;
-  font-size:.65rem;
-}
-.step-item{
-  display:flex;align-items:center;gap:4px;color:var(--text-dim);transition:.2s;
-}
-.step-item .num{
-  width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font-weight:700;font-size:.6rem;border:1.5px solid var(--border);transition:.2s;
-}
-.step-item.done .num{background:var(--green);border-color:var(--green);color:#fff}
-.step-item.active .num{background:var(--accent);border-color:var(--accent);color:#fff}
-.step-item.done{color:var(--green)}
-.step-item.active{color:var(--accent)}
-.step-arrow{color:var(--border);font-size:.6rem;margin:0 3px}
-.step-item .label{display:none}
-@media(min-width:600px){.step-item .label{display:inline}}
-
 .chat{flex:1;overflow-y:auto;padding:16px 16px 8px;display:flex;flex-direction:column;gap:12px}
 .chat::-webkit-scrollbar{width:4px}
 .chat::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
@@ -108,32 +84,41 @@ body.resizing .resize-handle{pointer-events:auto}
   flex:1;text-align:center;padding:32px 16px;color:var(--text-dim);
 }
 .welcome h2{font-size:1.2rem;color:var(--accent);letter-spacing:.1em;margin-bottom:6px}
-.welcome p{font-size:.82rem;line-height:1.6;max-width:400px}
-.welcome .steps-preview{
-  margin-top:20px;text-align:left;font-size:.78rem;line-height:2;
+.welcome p{font-size:.82rem;line-height:1.6;max-width:420px}
+.welcome .agents-preview{
+  margin-top:20px;text-align:left;font-size:.78rem;line-height:2.2;
 }
-.welcome .steps-preview .sp-num{
-  display:inline-block;width:20px;height:20px;border-radius:50%;text-align:center;line-height:20px;
-  font-weight:700;font-size:.65rem;margin-right:6px;
+.welcome .agents-preview .ap-icon{
+  display:inline-block;width:22px;height:22px;border-radius:50%;text-align:center;line-height:22px;
+  font-size:.7rem;margin-right:6px;vertical-align:middle;
 }
-.welcome .sp-active .sp-num{background:var(--accent);color:#fff}
-.welcome .sp-future .sp-num{background:var(--border);color:var(--text-dim)}
 
-/* messages */
+/* Messages */
 .msg{max-width:100%;animation:fadeIn .2s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .msg.user{align-self:flex-end;max-width:85%}
 .msg.ai{align-self:flex-start;max-width:95%}
-.msg-label{font-size:.65rem;color:var(--text-dim);margin-bottom:3px;padding:0 2px}
-.msg.user .msg-label{text-align:right}
+.msg-label{font-size:.65rem;color:var(--text-dim);margin-bottom:3px;padding:0 2px;display:flex;align-items:center;gap:4px}
+.msg.user .msg-label{text-align:right;justify-content:flex-end}
 .msg-body{
-  padding:10px 14px;border-radius:10px;font-size:.84rem;line-height:1.6;
+  padding:10px 14px;border-radius:10px;font-size:.84rem;line-height:1.7;
   word-wrap:break-word;white-space:pre-wrap;
 }
 .msg.user .msg-body{background:var(--accent);color:#fff;border-bottom-right-radius:2px}
 .msg.ai .msg-body{background:var(--surface);border:1px solid var(--border);border-bottom-left-radius:2px}
 
-/* collapsible */
+/* Agent badges */
+.agent-badge{
+  display:inline-block;font-size:.58rem;padding:1px 6px;border-radius:3px;
+  font-weight:600;letter-spacing:.02em;
+}
+.agent-research{background:rgba(59,130,246,.15);color:var(--blue)}
+.agent-direction{background:rgba(139,92,246,.15);color:var(--accent)}
+.agent-lyrics{background:rgba(34,197,94,.15);color:var(--green)}
+.agent-suno{background:rgba(245,158,11,.15);color:var(--orange)}
+.agent-general{background:rgba(136,136,148,.12);color:var(--text-dim)}
+
+/* Collapsible sections */
 .msg-section{margin-top:8px}
 .msg-section:first-child{margin-top:0}
 .section-toggle{
@@ -142,18 +127,23 @@ body.resizing .resize-handle{pointer-events:auto}
 }
 .section-toggle .arrow{transition:transform .2s;font-size:.65rem}
 .section-toggle .arrow.open{transform:rotate(90deg)}
-.section-content{display:none;padding:8px 0 2px;font-size:.84rem;line-height:1.6;white-space:pre-wrap}
+.section-content{display:none;padding:8px 0 2px;font-size:.82rem;line-height:1.6;white-space:pre-wrap}
 .section-content.open{display:block}
-.msg-actions{display:flex;gap:5px;margin-top:6px}
-.msg-action{
-  padding:2px 8px;font-size:.65rem;background:transparent;
-  color:var(--text-dim);border:1px solid var(--border);border-radius:3px;
-  cursor:pointer;transition:.12s;
-}
-.msg-action:hover{border-color:var(--accent);color:var(--accent)}
-.msg-action.copied{border-color:var(--green);color:var(--green)}
 
-/* thinking */
+/* Summary cards in analysis message */
+.summary-cards{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.summary-card{
+  background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:10px 14px;
+}
+.summary-card h4{font-size:.75rem;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.summary-card ul{list-style:none;padding:0;margin:0}
+.summary-card li{
+  font-size:.78rem;line-height:1.6;color:var(--text);padding:1px 0 1px 12px;position:relative;
+}
+.summary-card li::before{content:'•';position:absolute;left:0;color:var(--accent)}
+
+/* Thinking indicator */
 .thinking{display:flex;gap:4px;padding:10px 14px;align-self:flex-start}
 .thinking span{width:7px;height:7px;background:var(--accent);border-radius:50%;animation:blink 1.2s infinite}
 .thinking span:nth-child(2){animation-delay:.2s}
@@ -161,7 +151,7 @@ body.resizing .resize-handle{pointer-events:auto}
 @keyframes blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
 .thinking-text{font-size:.75rem;color:var(--text-dim);margin-left:6px;align-self:center}
 
-/* input bar */
+/* Input bar */
 .input-bar{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface)}
 .input-bar-inner{display:flex;gap:6px;align-items:flex-end}
 .input-wrap{
@@ -188,27 +178,46 @@ body.resizing .resize-handle{pointer-events:auto}
 .send-btn:disabled{opacity:.4;cursor:not-allowed;filter:none}
 .input-hint{font-size:.65rem;color:var(--text-dim);margin-top:3px;padding:0 2px}
 
-/* ===== Right Panel — Directions ===== */
+/* ===== Right Panel — Artifacts ===== */
 .right-panel{
   width:420px;min-width:250px;max-width:700px;height:100%;
   display:flex;flex-direction:column;background:var(--bg);flex-shrink:0;
 }
 .rp-header{
-  padding:14px 16px 10px;background:var(--surface);flex-shrink:0;
+  padding:12px 16px 0;background:var(--surface);flex-shrink:0;
   border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;
 }
+.rp-header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .rp-header h3{font-size:.85rem;font-weight:700;color:var(--accent);letter-spacing:.06em}
-.rp-header .copy-all{
+.rp-header .copy-btn{
   padding:4px 10px;font-size:.68rem;background:transparent;
   color:var(--text-dim);border:1px solid var(--border);border-radius:4px;
   cursor:pointer;transition:.12s;
 }
-.rp-header .copy-all:hover{border-color:var(--accent);color:var(--accent)}
+.rp-header .copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Tabs */
+.rp-tabs{display:flex;gap:0}
+.rp-tab{
+  padding:8px 14px;font-size:.72rem;font-weight:600;
+  background:transparent;color:var(--text-dim);border:none;
+  border-bottom:2px solid transparent;cursor:pointer;transition:.15s;
+  position:relative;
+}
+.rp-tab:hover{color:var(--text)}
+.rp-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.rp-tab.has-data::after{
+  content:'';position:absolute;top:6px;right:6px;width:5px;height:5px;
+  border-radius:50%;background:var(--green);
+}
+.rp-tab.active.has-data::after{display:none}
 
 .rp-body{flex:1;overflow-y:auto;padding:16px}
 .rp-body::-webkit-scrollbar{width:4px}
 .rp-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+.rp-tab-content{display:none}
+.rp-tab-content.active{display:block}
 
 .rp-empty{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -220,105 +229,76 @@ body.resizing .resize-handle{pointer-events:auto}
 /* Direction cards */
 .dir-card{
   background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:16px;margin-bottom:12px;transition:.2s;position:relative;
-  cursor:default;
+  padding:16px;margin-bottom:12px;transition:.2s;position:relative;cursor:default;
 }
 .dir-card:hover{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
-.dir-card.selected{border-color:var(--green);box-shadow:0 0 12px rgba(34,197,94,.2)}
 .dir-card.new-card{border-left:3px solid var(--orange)}
 .dir-card-num{
   position:absolute;top:-8px;left:12px;
   background:var(--accent);color:#fff;font-size:.65rem;font-weight:700;
-  padding:2px 8px;border-radius:10px;letter-spacing:.04em;
+  padding:2px 8px;border-radius:10px;
 }
 .dir-card-title{font-size:.95rem;font-weight:700;margin:6px 0 8px;color:var(--text)}
 .dir-card-concept{font-size:.82rem;line-height:1.6;color:var(--text);margin-bottom:10px}
 .dir-card-meta{font-size:.72rem;color:var(--text-dim);line-height:1.8}
 .dir-card-meta strong{color:var(--text);font-weight:600}
-.dir-card-mood{
-  display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;
-}
+.dir-card-mood{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .mood-tag{
   padding:2px 8px;font-size:.65rem;border-radius:10px;
   background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);
 }
 
-/* Coming soon overlay for step 4-5 */
-.coming-soon{
-  margin-top:16px;padding:16px;border:1px dashed var(--border);border-radius:10px;
-  text-align:center;color:var(--text-dim);font-size:.78rem;line-height:1.6;
+/* Lyrics display */
+.lyrics-display{padding:4px 0}
+.lyrics-title{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:4px}
+.lyrics-structure{font-size:.72rem;color:var(--text-dim);margin-bottom:12px}
+.lyrics-text{
+  font-size:.84rem;line-height:1.8;color:var(--text);white-space:pre-wrap;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:16px;font-family:inherit;
 }
-.coming-soon strong{color:var(--orange)}
 
-/* Summary confirmation cards */
-.summary-card{
-  background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:14px 16px;margin-bottom:10px;
+/* Suno display */
+.suno-display{padding:4px 0}
+.suno-field{margin-bottom:12px}
+.suno-field label{
+  font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;
+  letter-spacing:.06em;display:block;margin-bottom:4px;
 }
-.summary-card h4{
-  font-size:.78rem;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;
+.suno-value{
+  font-size:.82rem;line-height:1.6;color:var(--text);
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:8px 12px;
 }
-.summary-card ul{list-style:none;padding:0;margin:0}
-.summary-card li{
-  font-size:.8rem;line-height:1.6;color:var(--text);padding:2px 0 2px 12px;
-  position:relative;
+.suno-tags{display:flex;flex-wrap:wrap;gap:4px}
+.suno-tag{
+  padding:3px 10px;font-size:.7rem;border-radius:12px;
+  background:var(--accent);color:#fff;font-weight:500;
 }
-.summary-card li::before{
-  content:'•';position:absolute;left:0;color:var(--accent);
-}
-.summary-confirm-actions{
-  display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;
-}
-.btn-proceed{
-  padding:8px 18px;font-size:.82rem;font-weight:600;
-  background:var(--green);color:#fff;border:none;border-radius:6px;
-  cursor:pointer;transition:.15s;
-}
-.btn-proceed:hover{filter:brightness(1.15)}
-.btn-proceed:disabled{opacity:.4;cursor:not-allowed}
-.btn-revise{
-  padding:8px 18px;font-size:.82rem;font-weight:600;
-  background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:6px;
-  cursor:pointer;transition:.15s;
-}
-.btn-revise:hover{border-color:var(--accent);color:var(--accent)}
-.revise-input-wrap{
-  display:none;margin-top:10px;
-}
-.revise-input-wrap.show{display:block}
-.revise-input{
-  width:100%;padding:8px 12px;font-size:.82rem;
-  background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;
-  font-family:inherit;resize:none;outline:none;line-height:1.4;
-}
-.revise-input:focus{border-color:var(--accent)}
-.revise-send{
-  margin-top:6px;padding:6px 14px;font-size:.78rem;
-  background:var(--accent);color:#fff;border:none;border-radius:5px;
-  cursor:pointer;transition:.15s;
-}
-.revise-send:hover{filter:brightness(1.15)}
+.suno-tag.negative{background:var(--red);opacity:.7}
 
-/* Research panel (collapsible in right panel) */
-.research-section{
-  margin-top:16px;padding-top:16px;border-top:1px solid var(--border);
+/* Research collapsible in right panel */
+.rp-research{
+  border-bottom:1px solid var(--border);padding:10px 16px;background:var(--surface);
 }
-.research-toggle{
+.rp-research-toggle{
   display:flex;align-items:center;gap:6px;cursor:pointer;
-  font-size:.78rem;font-weight:600;color:var(--text-dim);
-  user-select:none;padding:4px 0;
+  font-size:.75rem;font-weight:600;color:var(--text-dim);user-select:none;
 }
-.research-toggle:hover{color:var(--accent)}
-.research-body{display:none;margin-top:10px;font-size:.8rem;line-height:1.7;white-space:pre-wrap;color:var(--text-dim)}
-.research-body.open{display:block}
+.rp-research-toggle:hover{color:var(--accent)}
+.rp-research-body{
+  display:none;margin-top:8px;font-size:.78rem;line-height:1.7;
+  white-space:pre-wrap;color:var(--text-dim);max-height:400px;overflow-y:auto;
+}
+.rp-research-body.open{display:block}
 
-/* mobile */
+/* Mobile */
 .sidebar-toggle{
   display:none;position:fixed;top:8px;left:8px;z-index:200;
   background:var(--surface2);border:1px solid var(--border);
   color:var(--text);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.95rem;
 }
-.lyrics-toggle{
+.panel-toggle{
   display:none;position:fixed;top:8px;right:8px;z-index:200;
   background:var(--surface2);border:1px solid var(--border);
   color:var(--text);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.95rem;
@@ -327,7 +307,7 @@ body.resizing .resize-handle{pointer-events:auto}
 @media(max-width:1024px){
   .right-panel{position:fixed;right:-420px;top:0;z-index:99;transition:right .25s;height:100%;border-left:1px solid var(--border)}
   .right-panel.open{right:0}
-  .lyrics-toggle{display:block}
+  .panel-toggle{display:block}
 }
 @media(max-width:768px){
   .sidebar{position:fixed;left:calc(-1*var(--sidebar-w));top:0;z-index:99;transition:left .25s;height:100%}
@@ -340,17 +320,14 @@ body.resizing .resize-handle{pointer-events:auto}
 <body>
 
 <button class="sidebar-toggle" id="sidebarToggle">&#9776;</button>
-<button class="lyrics-toggle" id="lyricsToggle">&#9835;</button>
+<button class="panel-toggle" id="panelToggle">&#9835;</button>
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
 <!-- History Sidebar -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h2>HISTORY</h2>
-    <div style="display:flex;gap:4px">
-      <button class="new-btn" id="regenTitles" title="タイトル再生成" style="background:var(--surface2);color:var(--text-dim);border:1px solid var(--border)">&#x21bb;</button>
-      <button class="new-btn" id="newBtn">+ NEW</button>
-    </div>
+    <button class="new-btn" id="newBtn">+ NEW</button>
   </div>
   <div class="history-list" id="historyList">
     <div class="history-empty" id="historyEmpty">履歴なし</div>
@@ -365,30 +342,18 @@ body.resizing .resize-handle{pointer-events:auto}
   <div class="topbar">
     <div class="topbar-inner">
       <h1>ULTRON</h1>
-      <span>5-Step 制作ワークフロー</span>
-    </div>
-    <div class="steps-bar" id="stepsBar">
-      <div class="step-item" data-step="1"><span class="num">1</span><span class="label">企画書</span></div>
-      <span class="step-arrow">›</span>
-      <div class="step-item" data-step="2"><span class="num">2</span><span class="label">リサーチ</span></div>
-      <span class="step-arrow">›</span>
-      <div class="step-item" data-step="3"><span class="num">3</span><span class="label">方向性</span></div>
-      <span class="step-arrow">›</span>
-      <div class="step-item" data-step="4"><span class="num">4</span><span class="label">選択</span></div>
-      <span class="step-arrow">›</span>
-      <div class="step-item" data-step="5"><span class="num">5</span><span class="label">歌詞</span></div>
+      <span>Agent Chat</span>
     </div>
   </div>
   <div class="chat" id="chat">
     <div class="welcome" id="welcome">
-      <h2>ULTRON v2</h2>
-      <p>企画書を入力 → AIがリサーチ → 曲の方向性を提案</p>
-      <div class="steps-preview">
-        <div class="sp-active"><span class="sp-num">①</span>クライアント企画書インプット</div>
-        <div class="sp-active"><span class="sp-num">②</span>Perplexity deep-research で分析</div>
-        <div class="sp-active"><span class="sp-num">③</span>曲の方向性候補を3〜5個提示</div>
-        <div class="sp-future"><span class="sp-num">④</span>方向性を選択 <span style="color:var(--orange)">(coming soon)</span></div>
-        <div class="sp-future"><span class="sp-num">⑤</span>Sunoプロンプト＋歌詞生成 <span style="color:var(--orange)">(coming soon)</span></div>
+      <h2>ULTRON v3</h2>
+      <p>企画書を入力 → 自動でリサーチ＋検証<br>その後は自由にチャットで指示</p>
+      <div class="agents-preview">
+        <div><span class="ap-icon" style="background:rgba(59,130,246,.2);color:var(--blue)">🔍</span>リサーチ → Perplexity + Claude検証</div>
+        <div><span class="ap-icon" style="background:rgba(139,92,246,.2);color:var(--accent)">🎯</span>「方向性は？」→ Claude extended thinking</div>
+        <div><span class="ap-icon" style="background:rgba(34,197,94,.2);color:var(--green)">✍️</span>「歌詞書いて」→ GPT-4o</div>
+        <div><span class="ap-icon" style="background:rgba(245,158,11,.2);color:var(--orange)">🎵</span>「Sunoプロンプト作って」→ GPT-4o</div>
       </div>
     </div>
   </div>
@@ -411,19 +376,48 @@ body.resizing .resize-handle{pointer-events:auto}
 <!-- Resize handle: chat | right panel -->
 <div class="resize-handle" id="resizeRight"></div>
 
-<!-- Right Panel — Directions -->
+<!-- Right Panel — Artifacts -->
 <div class="right-panel" id="rightPanel">
+  <div class="rp-research" id="rpResearch" style="display:none">
+    <div class="rp-research-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.arrow').classList.toggle('open')">
+      <span class="arrow" style="font-size:.6rem;transition:transform .2s">&#9654;</span>
+      🔍 リサーチ全文
+    </div>
+    <div class="rp-research-body" id="rpResearchBody"></div>
+  </div>
   <div class="rp-header">
-    <h3>🎯 方向性候補</h3>
-    <button class="copy-all" id="copyAll">全てコピー</button>
+    <div class="rp-header-top">
+      <h3>成果物</h3>
+      <button class="copy-btn" id="copyBtn" onclick="copyCurrentTab()">コピー</button>
+    </div>
+    <div class="rp-tabs" id="rpTabs">
+      <button class="rp-tab active" data-tab="directions" onclick="switchTab('directions')">🎯 方向性</button>
+      <button class="rp-tab" data-tab="lyrics" onclick="switchTab('lyrics')">✍️ 歌詞</button>
+      <button class="rp-tab" data-tab="suno" onclick="switchTab('suno')">🎵 Suno</button>
+    </div>
   </div>
   <div class="rp-body" id="rpBody">
-    <div class="rp-empty" id="rpEmpty">
-      <div class="icon">🎯</div>
-      <p>方向性候補がここに表示されます<br>企画書を送信してください</p>
+    <div class="rp-tab-content active" id="tabDirections">
+      <div class="rp-empty" id="emptyDirections">
+        <div class="icon">🎯</div>
+        <p>「方向性を提案して」と<br>チャットで指示してください</p>
+      </div>
+      <div id="directionsContainer"></div>
     </div>
-    <div id="directionsContainer" style="display:none"></div>
-    <div id="researchContainer" style="display:none"></div>
+    <div class="rp-tab-content" id="tabLyrics">
+      <div class="rp-empty" id="emptyLyrics">
+        <div class="icon">✍️</div>
+        <p>「歌詞を書いて」と<br>チャットで指示してください</p>
+      </div>
+      <div id="lyricsContainer"></div>
+    </div>
+    <div class="rp-tab-content" id="tabSuno">
+      <div class="rp-empty" id="emptySuno">
+        <div class="icon">🎵</div>
+        <p>「Sunoプロンプト作って」と<br>チャットで指示してください</p>
+      </div>
+      <div id="sunoContainer"></div>
+    </div>
   </div>
 </div>
 
@@ -434,33 +428,55 @@ const chatInput = $('chatInput'), inputWrap = $('inputWrap'), sendBtn = $('sendB
 const fileBadge = $('fileBadge'), fileNameEl = $('fileName'), fileRemove = $('fileRemove');
 const historyList = $('historyList'), historyEmpty = $('historyEmpty');
 const sidebar = $('sidebar'), rightPanel = $('rightPanel');
-const rpEmpty = $('rpEmpty');
-const directionsContainer = $('directionsContainer');
-const researchContainer = $('researchContainer');
 
 let selectedFile = null, activeId = null, isGenerating = false;
-let currentStep = 0;
+let currentTab = 'directions';
+let latestArtifacts = { directions: null, lyrics: null, suno: null };
 let currentResearch = '';
-let currentDirections = [];
 
-// --- Step indicator ---
-function updateStepIndicator(step) {
-  currentStep = step;
-  document.querySelectorAll('.step-item').forEach(el => {
-    const s = parseInt(el.dataset.step);
-    el.classList.remove('done', 'active');
-    if (s < step) el.classList.add('done');
-    else if (s === step) el.classList.add('active');
-  });
+// ========================================================================
+// Agent badge config
+// ========================================================================
+const AGENTS = {
+  research:  { label: '🔍 リサーチ',  cls: 'agent-research' },
+  direction: { label: '🎯 方向性',    cls: 'agent-direction' },
+  lyrics:    { label: '✍️ 歌詞',      cls: 'agent-lyrics' },
+  suno:      { label: '🎵 Suno',      cls: 'agent-suno' },
+  general:   { label: '💬 一般',      cls: 'agent-general' },
+};
+
+function agentBadgeHtml(agent) {
+  const a = AGENTS[agent];
+  if (!a) return '';
+  return `<span class="agent-badge ${a.cls}">${a.label}</span>`;
 }
 
-// --- Right panel ---
+// ========================================================================
+// Right Panel — Tabs
+// ========================================================================
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.rp-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.rp-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab' + cap(tab)));
+}
+
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function markTabHasData(tab, has) {
+  const el = document.querySelector(`.rp-tab[data-tab="${tab}"]`);
+  if (el) el.classList.toggle('has-data', has);
+}
+
 function renderDirections(directions) {
-  currentDirections = directions;
-  directionsContainer.innerHTML = '';
+  latestArtifacts.directions = directions;
+  const container = $('directionsContainer');
+  container.innerHTML = '';
+  $('emptyDirections').style.display = 'none';
+  markTabHasData('directions', true);
+
   directions.forEach((d, i) => {
-    const card = document.createElement('div');
     const isNew = (d.title || '').includes('★');
+    const card = document.createElement('div');
     card.className = 'dir-card' + (isNew ? ' new-card' : '');
     const moods = (d.mood || '').split(/[,、]/).map(m => m.trim()).filter(Boolean);
     const moodHtml = moods.map(m => `<span class="mood-tag">${esc(m)}</span>`).join('');
@@ -472,69 +488,211 @@ function renderDirections(directions) {
       <div class="dir-card-concept">${esc(d.concept || '')}</div>
       <div class="dir-card-meta">
         <div><strong>🎵 参考:</strong> ${esc(d.reference || '')}</div>
-        ${bpm}
-        ${vocal}
+        ${bpm}${vocal}
         <div><strong>⚡ フック:</strong> ${esc(d.hook || '')}</div>
         <div><strong>⚠️ リスク:</strong> ${esc(d.risk || '')}</div>
       </div>
-      <div class="dir-card-mood">${moodHtml}</div>
-    `;
-    directionsContainer.appendChild(card);
+      <div class="dir-card-mood">${moodHtml}</div>`;
+    container.appendChild(card);
   });
-
-  // Coming soon note
-  const cs = document.createElement('div');
-  cs.className = 'coming-soon';
-  cs.innerHTML = '<strong>Step ④⑤ coming soon</strong><br>方向性を選択 → Sunoプロンプト＋歌詞を自動生成';
-  directionsContainer.appendChild(cs);
-
-  rpEmpty.style.display = 'none';
-  directionsContainer.style.display = 'block';
 }
 
-function renderResearchInPanel(research) {
-  currentResearch = research;
-  researchContainer.innerHTML = `
-    <div class="research-section">
-      <div class="research-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.arrow').classList.toggle('open')">
-        <span class="arrow" style="font-size:.65rem;transition:transform .2s">&#9654;</span>
-        🔍 Deep Research（全文）
+function renderLyrics(data) {
+  latestArtifacts.lyrics = data;
+  const container = $('lyricsContainer');
+  container.innerHTML = '';
+  $('emptyLyrics').style.display = 'none';
+  markTabHasData('lyrics', true);
+
+  const title = data.title || '';
+  const structure = data.structure || '';
+  const lyrics = data.lyrics || (typeof data === 'string' ? data : '');
+
+  container.innerHTML = `
+    <div class="lyrics-display">
+      ${title ? `<div class="lyrics-title">${esc(title)}</div>` : ''}
+      ${structure ? `<div class="lyrics-structure">構成: ${esc(structure)}</div>` : ''}
+      <div class="lyrics-text">${esc(lyrics)}</div>
+    </div>`;
+}
+
+function renderSuno(data) {
+  latestArtifacts.suno = data;
+  const container = $('sunoContainer');
+  container.innerHTML = '';
+  $('emptySuno').style.display = 'none';
+  markTabHasData('suno', true);
+
+  const style = data.style || '';
+  const title = data.title || '';
+  const tags = data.tags || [];
+  const negativeTags = data.negative_tags || [];
+  const lyrics = data.lyrics || '';
+
+  const tagsHtml = tags.map(t => `<span class="suno-tag">${esc(t)}</span>`).join('');
+  const negHtml = negativeTags.map(t => `<span class="suno-tag negative">${esc(t)}</span>`).join('');
+
+  container.innerHTML = `
+    <div class="suno-display">
+      ${title ? `<div class="suno-field"><label>Title</label><div class="suno-value">${esc(title)}</div></div>` : ''}
+      <div class="suno-field">
+        <label>Style of Music</label>
+        <div class="suno-value">${esc(style)}</div>
       </div>
-      <div class="research-body">${esc(research)}</div>
-    </div>
-  `;
-  researchContainer.style.display = 'block';
+      <div class="suno-field">
+        <label>Tags</label>
+        <div class="suno-tags">${tagsHtml}</div>
+      </div>
+      ${negativeTags.length ? `<div class="suno-field"><label>Negative Tags</label><div class="suno-tags">${negHtml}</div></div>` : ''}
+      ${lyrics ? `<div class="suno-field"><label>Lyrics (Suno Format)</label><div class="suno-value" style="white-space:pre-wrap">${esc(lyrics)}</div></div>` : ''}
+    </div>`;
+}
+
+function updateArtifact(type, data) {
+  if (type === 'directions') renderDirections(data);
+  else if (type === 'lyrics') renderLyrics(data);
+  else if (type === 'suno') renderSuno(data);
+  switchTab(type);
+}
+
+function showResearch(research) {
+  currentResearch = research;
+  $('rpResearch').style.display = 'block';
+  $('rpResearchBody').textContent = research;
 }
 
 function clearRightPanel() {
-  currentDirections = [];
+  latestArtifacts = { directions: null, lyrics: null, suno: null };
   currentResearch = '';
-  rpEmpty.style.display = 'flex';
-  directionsContainer.style.display = 'none';
-  directionsContainer.innerHTML = '';
-  researchContainer.style.display = 'none';
-  researchContainer.innerHTML = '';
+  $('rpResearch').style.display = 'none';
+  $('rpResearchBody').textContent = '';
+  ['directions', 'lyrics', 'suno'].forEach(tab => {
+    markTabHasData(tab, false);
+  });
+  $('directionsContainer').innerHTML = '';
+  $('lyricsContainer').innerHTML = '';
+  $('sunoContainer').innerHTML = '';
+  $('emptyDirections').style.display = 'flex';
+  $('emptyLyrics').style.display = 'flex';
+  $('emptySuno').style.display = 'flex';
+  switchTab('directions');
 }
 
-$('copyAll').addEventListener('click', function() {
-  if (!currentDirections.length) return;
-  let text = currentDirections.map((d, i) =>
-    `【候補${i+1}】${d.title}\n${d.concept}\n参考: ${d.reference}\nムード: ${d.mood}\nフック: ${d.hook}\nリスク: ${d.risk}`
-  ).join('\n\n');
-  if (currentResearch) text += '\n\n---\n\n【Deep Research】\n' + currentResearch;
+function copyCurrentTab() {
+  let text = '';
+  const btn = $('copyBtn');
+  if (currentTab === 'directions' && latestArtifacts.directions) {
+    text = latestArtifacts.directions.map((d, i) =>
+      `【候補${i+1}】${d.title}\n${d.concept}\n参考: ${d.reference}\nムード: ${d.mood}\nフック: ${d.hook}\nリスク: ${d.risk}`
+    ).join('\n\n');
+  } else if (currentTab === 'lyrics' && latestArtifacts.lyrics) {
+    const l = latestArtifacts.lyrics;
+    text = (l.title ? l.title + '\n\n' : '') + (l.lyrics || '');
+  } else if (currentTab === 'suno' && latestArtifacts.suno) {
+    const s = latestArtifacts.suno;
+    text = `Style: ${s.style || ''}\nTags: ${(s.tags||[]).join(', ')}\n\n${s.lyrics || ''}`;
+  }
+  if (!text) return;
   navigator.clipboard.writeText(text).then(() => {
-    this.textContent = 'コピー済み';
-    setTimeout(() => { this.textContent = '全てコピー'; }, 1500);
+    btn.textContent = 'コピー済み';
+    setTimeout(() => { btn.textContent = 'コピー'; }, 1500);
   });
-});
+}
 
-// --- Auto-resize ---
+// ========================================================================
+// Chat Messages
+// ========================================================================
+function addUserMsg(text) {
+  const el = document.createElement('div');
+  el.className = 'msg user';
+  el.innerHTML = `<div class="msg-label">You</div><div class="msg-body"></div>`;
+  el.querySelector('.msg-body').textContent = text;
+  chat.appendChild(el); scrollBottom();
+}
+
+function addAgentMsg(data) {
+  const el = document.createElement('div');
+  el.className = 'msg ai';
+  const badge = agentBadgeHtml(data.agent);
+
+  let bodyHtml = '';
+
+  // Main content
+  const contentHtml = esc(data.content || '');
+  bodyHtml += contentHtml;
+
+  // Summary cards (from analysis)
+  const meta = data.metadata || {};
+  if (meta.summary) {
+    bodyHtml += renderSummaryHtml(meta.summary);
+  }
+
+  // Thinking section (collapsible)
+  if (meta.thinking) {
+    bodyHtml += `<div class="msg-section">
+      <div class="section-toggle" onclick="toggleSection(this)">
+        <span class="arrow">&#9654;</span> 🧠 思考過程
+      </div>
+      <div class="section-content"></div>
+    </div>`;
+  }
+
+  el.innerHTML = `<div class="msg-label">${badge}ULTRON</div><div class="msg-body">${bodyHtml}</div>`;
+
+  // Set thinking text safely
+  if (meta.thinking) {
+    el.querySelector('.section-content').textContent = meta.thinking;
+  }
+
+  chat.appendChild(el); scrollBottom();
+}
+
+function renderSummaryHtml(summary) {
+  const sections = [
+    { key: 'audience', icon: '👥', label: '響いているユーザー層', color: 'var(--blue)' },
+    { key: 'resonance', icon: '🎯', label: 'そのユーザーに響くもの', color: 'var(--green)' },
+    { key: 'challenges', icon: '⚠️', label: '現在の課題', color: 'var(--orange)' },
+  ];
+  let html = '<div class="summary-cards">';
+  for (const s of sections) {
+    const items = summary[s.key] || [];
+    if (!items.length) continue;
+    html += `<div class="summary-card" style="border-left:3px solid ${s.color}">
+      <h4><span style="color:${s.color}">${s.icon}</span> ${s.label}</h4>
+      <ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function addThinking(text) {
+  const el = document.createElement('div');
+  el.className = 'thinking';
+  el.innerHTML = `<span></span><span></span><span></span><span class="thinking-text">${text}</span>`;
+  chat.appendChild(el); scrollBottom();
+  return el;
+}
+
+function toggleSection(t) {
+  t.querySelector('.arrow').classList.toggle('open');
+  t.nextElementSibling.classList.toggle('open');
+}
+
+function scrollBottom() { requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; }); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ========================================================================
+// Auto-resize textarea
+// ========================================================================
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
 });
 
-// --- Drag & drop ---
+// ========================================================================
+// Drag & Drop
+// ========================================================================
 inputWrap.addEventListener('dragover', e => { e.preventDefault(); inputWrap.classList.add('drag-over'); });
 inputWrap.addEventListener('dragleave', () => inputWrap.classList.remove('drag-over'));
 inputWrap.addEventListener('drop', e => {
@@ -554,7 +712,9 @@ function setFile(file) {
 function clearFile() { selectedFile = null; fileBadge.classList.remove('show'); fileNameEl.textContent = ''; }
 fileRemove.addEventListener('click', clearFile);
 
-// --- Send ---
+// ========================================================================
+// Send — IME safe
+// ========================================================================
 let isComposing = false;
 chatInput.addEventListener('compositionstart', () => { isComposing = true; });
 chatInput.addEventListener('compositionend', () => { isComposing = false; });
@@ -570,364 +730,106 @@ async function send() {
   if (!text && !hasPdf) return;
 
   welcome.style.display = 'none';
-  const userText = hasPdf && !text ? '📄 ' + selectedFile.name : text;
-  addMsg('user', userText);
   chatInput.value = ''; chatInput.style.height = 'auto';
   isGenerating = true; sendBtn.disabled = true;
 
-  if (activeId && currentStep >= 3) {
-    // --- Refine: 方向性への反論 ---
-    await sendRefine(text);
-  } else if (activeId && currentStep === 2) {
-    // --- Step②': サマリーへの修正コメント ---
-    await sendReviseResearch(text);
+  if (!activeId) {
+    // Phase 1: New project — analyze
+    const userText = hasPdf && !text ? '📄 ' + selectedFile.name : text;
+    addUserMsg(userText);
+    await createProject(text, hasPdf);
   } else {
-    // --- New: Step ①→② ---
-    await sendGenerate(text, hasPdf);
+    // Phase 2: Chat with agents
+    addUserMsg(text);
+    await sendChat(text);
   }
 
   isGenerating = false; sendBtn.disabled = false;
 }
 
-async function sendGenerate(text, hasPdf) {
-  updateStepIndicator(1);
-  const thinkEl = addThinking('① 企画書を受付中...');
+async function createProject(text, hasPdf) {
+  const thinkEl = addThinking('🔍 リサーチ＋検証を実行中...（数分かかる場合があります）');
 
   const fd = new FormData();
   if (hasPdf) fd.append('file', selectedFile); else fd.append('text', text);
   clearFile();
 
   try {
-    setTimeout(() => {
-      if (isGenerating) {
-        updateStepIndicator(2);
-        const t = thinkEl.querySelector('.thinking-text');
-        if (t) t.textContent = '② Perplexity deep-research 実行中...（数分かかる場合があります）';
-      }
-    }, 2000);
-
-    const res = await fetch('/api/generate', { method: 'POST', body: fd });
+    const res = await fetch('/api/analyze', { method: 'POST', body: fd });
     const data = await res.json();
     thinkEl.remove();
 
     if (!res.ok) {
-      addMsg('ai', 'エラー: ' + (data.error || '生成に失敗'));
-      updateStepIndicator(0);
+      addAgentMsg({ content: 'エラー: ' + (data.error || '分析に失敗'), agent: 'research', metadata: {} });
       return;
     }
 
-    // Step ② complete — show summary for confirmation
-    updateStepIndicator(2);
-    activeId = data.id;
-    addResearchMsg(data.research);
-    addSummaryConfirmation(data.summary);
-    renderResearchInPanel(data.research);
-    updatePlaceholder();
+    activeId = data.project.id;
+
+    // Show analysis message
+    const analysisMsg = data.messages.find(m => m.role === 'assistant');
+    if (analysisMsg) addAgentMsg(analysisMsg);
+
+    // Show research in right panel
+    if (data.research) showResearch(data.research);
+
+    // Update placeholder
+    chatInput.placeholder = 'メッセージを入力...（方向性は？ / 歌詞書いて / Sunoプロンプト作って）';
+
     loadHistory();
   } catch (e) {
     thinkEl.remove();
-    addMsg('ai', '通信エラー: ' + e.message);
-    updateStepIndicator(0);
+    addAgentMsg({ content: '通信エラー: ' + e.message, agent: 'general', metadata: {} });
   }
 }
 
-async function sendReviseResearch(feedback) {
-  const thinkEl = addThinking('リサーチを修正中...');
+async function sendChat(text) {
+  const thinkEl = addThinking('考え中...');
   clearFile();
 
   try {
-    const res = await fetch('/api/revise-research', {
+    const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry_id: activeId, feedback }),
+      body: JSON.stringify({ project_id: activeId, message: text }),
     });
     const data = await res.json();
     thinkEl.remove();
 
     if (!res.ok) {
-      addMsg('ai', 'エラー: ' + (data.error || 'リサーチ修正に失敗'));
+      addAgentMsg({ content: 'エラー: ' + (data.error || '処理に失敗'), agent: 'general', metadata: {} });
       return;
     }
 
-    addResearchMsg(data.research);
-    addSummaryConfirmation(data.summary);
-    renderResearchInPanel(data.research);
-  } catch (e) {
-    thinkEl.remove();
-    addMsg('ai', '通信エラー: ' + e.message);
-  }
-}
+    const msg = data.message;
+    addAgentMsg(msg);
 
-async function proceedToDirections() {
-  if (isGenerating) return;
-  isGenerating = true; sendBtn.disabled = true;
-
-  // Disable the proceed button
-  document.querySelectorAll('.btn-proceed').forEach(b => { b.disabled = true; b.textContent = '生成中...'; });
-
-  const thinkEl = addThinking('③ Claude extended thinking で方向性を生成中...');
-  updateStepIndicator(3);
-
-  try {
-    const res = await fetch('/api/proceed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry_id: activeId }),
-    });
-    const data = await res.json();
-    thinkEl.remove();
-
-    if (!res.ok) {
-      addMsg('ai', 'エラー: ' + (data.error || '方向性生成に失敗'));
-      updateStepIndicator(2);
-      document.querySelectorAll('.btn-proceed').forEach(b => { b.disabled = false; b.textContent = 'この分析で進む'; });
-      isGenerating = false; sendBtn.disabled = false;
-      return;
+    // Update right panel if artifact
+    if (msg.artifact_type && msg.artifact) {
+      updateArtifact(msg.artifact_type, msg.artifact);
     }
-
-    updateStepIndicator(3);
-    addDirectionsMsg(data.directions, data.thinking || '');
-    renderDirections(data.directions);
-    updatePlaceholder();
-    loadHistory();
   } catch (e) {
     thinkEl.remove();
-    addMsg('ai', '通信エラー: ' + e.message);
-    updateStepIndicator(2);
-    document.querySelectorAll('.btn-proceed').forEach(b => { b.disabled = false; b.textContent = 'この分析で進む'; });
-  }
-  isGenerating = false; sendBtn.disabled = false;
-}
-
-async function sendRefine(feedback) {
-  const thinkEl = addThinking('方向性をリファイン中...');
-  clearFile();
-
-  try {
-    const res = await fetch('/api/refine', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry_id: activeId, feedback }),
-    });
-    const data = await res.json();
-    thinkEl.remove();
-
-    if (!res.ok) {
-      addMsg('ai', 'エラー: ' + (data.error || 'リファインに失敗'));
-      return;
-    }
-
-    // Show refined directions
-    addRefineResultMsg(data.directions, data.thinking || '');
-    renderDirections(data.directions);
-  } catch (e) {
-    thinkEl.remove();
-    addMsg('ai', '通信エラー: ' + e.message);
+    addAgentMsg({ content: '通信エラー: ' + e.message, agent: 'general', metadata: {} });
   }
 }
 
-function updatePlaceholder() {
-  if (activeId && currentStep >= 3) {
-    chatInput.placeholder = '方向性への反論・フィードバックを入力...';
-  } else if (activeId && currentStep === 2) {
-    chatInput.placeholder = '分析への修正コメントを入力...';
-  } else {
-    chatInput.placeholder = '企画内容を入力、またはファイルをドロップ...';
-  }
-}
-
-function addSummaryConfirmation(summary) {
-  const el = document.createElement('div');
-  el.className = 'msg ai';
-  const audienceHtml = (summary.audience || []).map(s => `<li>${esc(s)}</li>`).join('');
-  const resonanceHtml = (summary.resonance || []).map(s => `<li>${esc(s)}</li>`).join('');
-  const challengesHtml = (summary.challenges || []).map(s => `<li>${esc(s)}</li>`).join('');
-
-  el.innerHTML = `
-    <div class="msg-label">ULTRON — Step ②' アーティスト分析サマリー</div>
-    <div class="msg-body" style="padding:14px 16px">
-      <div class="summary-card" style="border-left:3px solid var(--blue)">
-        <h4><span style="color:var(--blue)">👥</span> 響いているユーザー層</h4>
-        <ul>${audienceHtml}</ul>
-      </div>
-      <div class="summary-card" style="border-left:3px solid var(--green)">
-        <h4><span style="color:var(--green)">🎯</span> そのユーザーに響くもの</h4>
-        <ul>${resonanceHtml}</ul>
-      </div>
-      <div class="summary-card" style="border-left:3px solid var(--orange)">
-        <h4><span style="color:var(--orange)">⚠️</span> 現在の課題</h4>
-        <ul>${challengesHtml}</ul>
-      </div>
-      <div class="summary-confirm-actions">
-        <button class="btn-proceed" onclick="proceedToDirections()">✓ この分析で進む</button>
-        <button class="btn-revise" onclick="showReviseInput(this)">✎ 修正コメントを入れる</button>
-      </div>
-      <div class="revise-input-wrap">
-        <textarea class="revise-input" rows="2" placeholder="分析の修正コメントを入力..."></textarea>
-        <button class="revise-send" onclick="sendReviseFromButton(this)">修正して再分析</button>
-      </div>
-    </div>`;
-  chat.appendChild(el); scrollBottom();
-}
-
-function showReviseInput(btn) {
-  const wrap = btn.closest('.msg-body').querySelector('.revise-input-wrap');
-  wrap.classList.toggle('show');
-  if (wrap.classList.contains('show')) {
-    wrap.querySelector('.revise-input').focus();
-  }
-}
-
-async function sendReviseFromButton(btn) {
-  const wrap = btn.closest('.revise-input-wrap');
-  const input = wrap.querySelector('.revise-input');
-  const text = input.value.trim();
-  if (!text || isGenerating) return;
-
-  addMsg('user', text);
-  input.value = '';
-  wrap.classList.remove('show');
-
-  isGenerating = true; sendBtn.disabled = true;
-  await sendReviseResearch(text);
-  isGenerating = false; sendBtn.disabled = false;
-}
-
-// --- Messages ---
-function addMsg(role, text) {
-  const el = document.createElement('div');
-  el.className = 'msg ' + role;
-  el.innerHTML = '<div class="msg-label">' + (role === 'user' ? 'You' : 'ULTRON') + '</div><div class="msg-body"></div>';
-  el.querySelector('.msg-body').textContent = text;
-  chat.appendChild(el); scrollBottom();
-}
-
-function addResearchMsg(research) {
-  const el = document.createElement('div');
-  el.className = 'msg ai';
-  el.innerHTML = `
-    <div class="msg-label">ULTRON — Step ②</div>
-    <div class="msg-body">
-      <div class="msg-section">
-        <div class="section-toggle" onclick="toggleSection(this)">
-          <span class="arrow">&#9654;</span> 🔍 Deep Research 完了
-        </div>
-        <div class="section-content research-c"></div>
-      </div>
-      <div class="msg-actions">
-        <button class="msg-action" onclick="copyText(this,'${btoa(encodeURIComponent('research'))}')">リサーチをコピー</button>
-      </div>
-    </div>`;
-  el.querySelector('.research-c').textContent = research;
-  el._research = research;
-  chat.appendChild(el); scrollBottom();
-}
-
-function addDirectionsMsg(directions, thinking) {
-  const el = document.createElement('div');
-  el.className = 'msg ai';
-  let html = '<div class="msg-label">ULTRON — Step ③ (Claude extended thinking)</div><div class="msg-body">';
-
-  // Thinking section (collapsible)
-  if (thinking) {
-    html += `<div class="msg-section">
-      <div class="section-toggle" onclick="toggleSection(this)">
-        <span class="arrow">&#9654;</span> 🧠 思考過程
-      </div>
-      <div class="section-content thinking-c"></div>
-    </div>`;
-  }
-
-  html += '<div style="font-size:.78rem;font-weight:600;color:var(--accent);padding:4px 0 8px">🎯 方向性候補 ' + directions.length + '案 → 右パネルに表示中</div>';
-  directions.forEach((d, i) => {
-    const bpm = d.bpm_range ? ` <span style="color:var(--text-dim);font-size:.7rem">[${esc(d.bpm_range)} BPM]</span>` : '';
-    html += `<div style="margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:6px;font-size:.8rem">
-      <strong style="color:var(--accent)">候補${i+1}:</strong> ${esc(d.title || '')}${bpm}
-      <div style="color:var(--text-dim);font-size:.75rem;margin-top:2px">${esc((d.concept || '').slice(0, 120))}${(d.concept||'').length > 120 ? '...' : ''}</div>
-    </div>`;
-  });
-  html += '</div>';
-  el.innerHTML = html;
-  if (thinking) {
-    el.querySelector('.thinking-c').textContent = thinking;
-  }
-  chat.appendChild(el); scrollBottom();
-}
-
-function addRefineResultMsg(directions, thinking) {
-  const el = document.createElement('div');
-  el.className = 'msg ai';
-  let html = '<div class="msg-label">ULTRON — リファイン (Claude extended thinking)</div><div class="msg-body">';
-
-  // Thinking section
-  if (thinking) {
-    html += `<div class="msg-section">
-      <div class="section-toggle" onclick="toggleSection(this)">
-        <span class="arrow">&#9654;</span> 🧠 思考過程
-      </div>
-      <div class="section-content thinking-c"></div>
-    </div>`;
-  }
-
-  html += '<div style="font-size:.78rem;font-weight:600;color:var(--green);padding:4px 0 8px">🔄 方向性を更新しました（' + directions.length + '案）→ 右パネル</div>';
-  directions.forEach((d, i) => {
-    const isNew = (d.title || '').includes('★');
-    const badge = isNew ? ' <span style="color:var(--orange);font-size:.7rem">NEW</span>' : '';
-    const bpm = d.bpm_range ? ` <span style="color:var(--text-dim);font-size:.7rem">[${esc(d.bpm_range)} BPM]</span>` : '';
-    html += `<div style="margin-bottom:6px;padding:6px 10px;background:var(--bg);border-radius:6px;font-size:.8rem;${isNew ? 'border-left:2px solid var(--orange)' : ''}">
-      <strong style="color:var(--accent)">候補${i+1}:</strong> ${esc(d.title || '')}${badge}${bpm}
-      <div style="color:var(--text-dim);font-size:.75rem;margin-top:2px">${esc((d.concept || '').slice(0, 120))}${(d.concept||'').length > 120 ? '...' : ''}</div>
-    </div>`;
-  });
-  html += '</div>';
-  el.innerHTML = html;
-  if (thinking) {
-    el.querySelector('.thinking-c').textContent = thinking;
-  }
-  chat.appendChild(el); scrollBottom();
-}
-
-function addThinking(text) {
-  const el = document.createElement('div');
-  el.className = 'thinking';
-  el.innerHTML = '<span></span><span></span><span></span><span class="thinking-text">' + text + '</span>';
-  chat.appendChild(el); scrollBottom(); return el;
-}
-
-function toggleSection(t) {
-  t.querySelector('.arrow').classList.toggle('open');
-  t.nextElementSibling.classList.toggle('open');
-}
-
-function copyText(btn, encoded) {
-  const msg = btn.closest('.msg');
-  const text = msg._research || msg.querySelector('.research-c')?.textContent || '';
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'コピー済み'; btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'リサーチをコピー'; btn.classList.remove('copied'); }, 1500);
-  });
-}
-
-function scrollBottom() { requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight }); }
-
-// --- Mobile toggles ---
+// ========================================================================
+// Mobile toggles
+// ========================================================================
 $('sidebarToggle').addEventListener('click', () => { sidebar.classList.toggle('open'); $('sidebarOverlay').classList.toggle('show'); });
-$('lyricsToggle').addEventListener('click', () => { rightPanel.classList.toggle('open'); });
+$('panelToggle').addEventListener('click', () => { rightPanel.classList.toggle('open'); });
 $('sidebarOverlay').addEventListener('click', () => { sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show'); });
 
-// --- Sidebar ---
-$('regenTitles').addEventListener('click', async function() {
-  this.disabled = true; this.textContent = '...';
-  try { await fetch('/api/history/regenerate-titles', { method: 'POST' }); loadHistory(); } catch (e) {}
-  this.disabled = false; this.textContent = '\u21bb';
-});
-
+// ========================================================================
+// History Sidebar
+// ========================================================================
 $('newBtn').addEventListener('click', () => {
-  activeId = null; clearRightPanel(); updateStepIndicator(0);
+  activeId = null; clearRightPanel();
   chat.innerHTML = ''; chat.appendChild(welcome); welcome.style.display = 'flex';
   document.querySelectorAll('.hi').forEach(el => el.classList.remove('active'));
   sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show');
-  updatePlaceholder();
+  chatInput.placeholder = '企画内容を入力、またはファイルをドロップ...';
 });
 
 async function loadHistory() {
@@ -942,10 +844,9 @@ async function loadHistory() {
       el.dataset.id = item.id;
       const d = new Date(item.created_at);
       const ds = (d.getMonth()+1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-      const stepLabel = item.step ? `Step ${item.step}` : '';
-      el.innerHTML = '<div class="t">' + esc(item.title) + (stepLabel ? ' <span class="step-badge">' + stepLabel + '</span>' : '') + '</div><div class="d">' + ds + '</div><button class="x">&times;</button>';
-      el.addEventListener('click', e => { if (!e.target.classList.contains('x')) selectHistory(item.id) });
-      el.querySelector('.x').addEventListener('click', e => { e.stopPropagation(); deleteHistory(item.id) });
+      el.innerHTML = `<div class="t">${esc(item.title)}</div><div class="d">${ds}</div><button class="x">&times;</button>`;
+      el.addEventListener('click', e => { if (!e.target.classList.contains('x')) selectHistory(item.id); });
+      el.querySelector('.x').addEventListener('click', e => { e.stopPropagation(); deleteHistory(item.id); });
       historyList.appendChild(el);
     });
   } catch (e) {}
@@ -959,31 +860,41 @@ async function selectHistory(id) {
 
     activeId = id;
     chat.innerHTML = ''; welcome.style.display = 'none'; chat.appendChild(welcome);
-    const step = data.step || 3;
-    updateStepIndicator(step);
+    clearRightPanel();
 
-    // Show brief
-    addMsg('user', data.brief || '');
+    const project = data.project;
+    const messages = data.messages || [];
+    const artifacts = data.artifacts || {};
 
-    // Show research
-    if (data.research) addResearchMsg(data.research);
-
-    // Show summary confirmation if at step 2
-    if (step === 2 && data.summary && typeof data.summary === 'object' && Object.keys(data.summary).length) {
-      addSummaryConfirmation(data.summary);
+    // Replay messages
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        addUserMsg(msg.content);
+      } else if (msg.role === 'assistant') {
+        addAgentMsg(msg);
+      }
     }
 
-    // Show directions if at step 3+
-    const dirs = data.directions || [];
-    if (dirs.length && step >= 3) {
-      addDirectionsMsg(dirs);
-      renderDirections(dirs);
+    // Show research in right panel
+    if (project.research) showResearch(project.research);
+
+    // Restore artifacts in right panel
+    if (artifacts.directions) {
+      renderDirections(artifacts.directions);
     }
-    if (data.research) renderResearchInPanel(data.research);
+    if (artifacts.lyrics) {
+      renderLyrics(artifacts.lyrics);
+    }
+    if (artifacts.suno) {
+      renderSuno(artifacts.suno);
+    }
 
-    if ((!dirs.length || step < 3) && !data.research) clearRightPanel();
+    // Switch to most relevant tab
+    if (artifacts.suno) switchTab('suno');
+    else if (artifacts.lyrics) switchTab('lyrics');
+    else if (artifacts.directions) switchTab('directions');
 
-    updatePlaceholder();
+    chatInput.placeholder = 'メッセージを入力...（方向性は？ / 歌詞書いて / Sunoプロンプト作って）';
     document.querySelectorAll('.hi').forEach(el => el.classList.toggle('active', el.dataset.id === id));
     sidebar.classList.remove('open'); $('sidebarOverlay').classList.remove('show');
     scrollBottom();
@@ -994,18 +905,19 @@ async function deleteHistory(id) {
   try {
     await fetch('/api/history/' + id, { method: 'DELETE' });
     if (activeId === id) {
-      activeId = null; clearRightPanel(); updateStepIndicator(0);
+      activeId = null; clearRightPanel();
       chat.innerHTML = ''; chat.appendChild(welcome); welcome.style.display = 'flex';
+      chatInput.placeholder = '企画内容を入力、またはファイルをドロップ...';
     }
     loadHistory();
   } catch (e) {}
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
-
 loadHistory();
 
-// --- Resize handles ---
+// ========================================================================
+// Resize handles
+// ========================================================================
 (function() {
   function initResize(handle, getTarget, side) {
     let startX, startW, target;
