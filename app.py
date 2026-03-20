@@ -24,20 +24,14 @@ from pydantic import BaseModel
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
+import db  # noqa: E402  — must import after load_dotenv so DATABASE_URL is available
+
 app = FastAPI(title="Ultron - 歌詞制作ワークフロー")
 
-HISTORY_FILE = Path(__file__).parent / "data" / "history.json"
-HISTORY_FILE.parent.mkdir(exist_ok=True)
 
-
-def load_history() -> list[dict]:
-    if HISTORY_FILE.exists():
-        return json.loads(HISTORY_FILE.read_text("utf-8"))
-    return []
-
-
-def save_history(history: list[dict]):
-    HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), "utf-8")
+@app.on_event("startup")
+async def startup():
+    db.init_db()
 
 
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -244,9 +238,7 @@ async def generate(
             {"label": "v1", "lyrics": lyrics, "parent": None, "feedback": None, "timestamp": now}
         ],
     }
-    history = load_history()
-    history.insert(0, entry)
-    save_history(history)
+    db.save_project(entry)
 
     return {
         "id": entry["id"],
@@ -259,38 +251,35 @@ async def generate(
 
 @app.get("/api/history")
 async def get_history():
-    return load_history()
+    return db.load_history()
 
 
 @app.post("/api/history/regenerate-titles")
 async def regenerate_titles():
-    """既存プロジェクトのタイトルをClaude Haikuで再生成"""
-    history = load_history()
+    """既存プロジェクトのタイトルをGPT-4o-miniで再生成"""
+    history = db.load_history()
     updated = 0
     for entry in history:
         brief = entry.get("brief", "")
         if brief:
             new_title = generate_title(brief)
             if new_title and new_title != entry.get("title"):
-                entry["title"] = new_title
+                db.update_project_title(entry["id"], new_title)
                 updated += 1
-    save_history(history)
     return {"updated": updated, "total": len(history)}
 
 
 @app.get("/api/history/{entry_id}")
 async def get_history_entry(entry_id: str):
-    for entry in load_history():
-        if entry["id"] == entry_id:
-            return entry
+    entry = db.get_project(entry_id)
+    if entry:
+        return entry
     return JSONResponse(status_code=404, content={"error": "見つかりません"})
 
 
 @app.delete("/api/history/{entry_id}")
 async def delete_history_entry(entry_id: str):
-    history = load_history()
-    history = [e for e in history if e["id"] != entry_id]
-    save_history(history)
+    db.delete_project(entry_id)
     return {"ok": True}
 
 
@@ -305,13 +294,9 @@ class ReviseRequest(BaseModel):
 async def revise_lyrics(req: ReviseRequest):
     """フィードバックに基づいて歌詞を修正"""
     # 履歴からコンテキストを取得
-    brief = ""
-    distilled = ""
-    for entry in load_history():
-        if entry["id"] == req.entry_id:
-            brief = entry.get("brief", "")
-            distilled = entry.get("distilled", entry.get("research", ""))
-            break
+    entry = db.get_project(req.entry_id)
+    brief = entry.get("brief", "") if entry else ""
+    distilled = entry.get("distilled", entry.get("research", "")) if entry else ""
 
     try:
         response = openai_client.chat.completions.create(
@@ -351,60 +336,35 @@ async def revise_lyrics(req: ReviseRequest):
         )
 
     # バージョンラベルを計算
-    history = load_history()
-    for entry in history:
-        if entry["id"] == req.entry_id:
-            if "versions" not in entry:
-                # 既存データをマイグレーション
-                entry["versions"] = [{"label": "v1", "lyrics": entry.get("lyrics", ""), "parent": None, "feedback": None, "timestamp": entry.get("created_at", "")}]
-                # 旧revisionsがあればマイグレーション
-                for i, rev in enumerate(entry.get("revisions", [])):
-                    entry["versions"].append({"label": f"v{i+2}", "lyrics": rev.get("previous_lyrics", ""), "parent": f"v{i+1}", "feedback": rev.get("feedback", ""), "timestamp": rev.get("timestamp", "")})
+    versions = db.get_versions(req.entry_id)
+    if not versions:
+        versions = [{"label": "v1", "lyrics": "", "parent": None, "feedback": None, "timestamp": ""}]
 
-            versions = entry["versions"]
-            from_ver = req.from_version or versions[-1]["label"]
+    from_ver = req.from_version or versions[-1]["label"]
 
-            # 次のラベルを決定
-            # from_verの直接の子がすでにあるか?
-            children = [v for v in versions if v.get("parent") == from_ver]
-            if not children:
-                # まだ子がない → 連番
-                # from_verが"v3"なら"v4", "v3-a"なら"v3-a.1"的に
-                base_num = len([v for v in versions if "-" not in v["label"] and v["label"].startswith("v")])
-                new_label = f"v{base_num + 1}"
-            else:
-                # すでに子がある → 分岐: v3-a, v3-b...
-                branch_children = [v for v in versions if v.get("parent") == from_ver and "-" in v["label"].split("v")[-1]]
-                if branch_children:
-                    # 既に分岐がある → 次のアルファベット
-                    last_suffix = sorted([v["label"] for v in branch_children])[-1]
-                    last_char = last_suffix.split("-")[-1]
-                    next_char = chr(ord(last_char) + 1)
-                    new_label = f"{from_ver}-{next_char}"
-                else:
-                    # 最初の分岐
-                    new_label = f"{from_ver}-a"
+    # 次のラベルを決定
+    children = [v for v in versions if v.get("parent") == from_ver]
+    if not children:
+        base_num = len([v for v in versions if "-" not in v["label"] and v["label"].startswith("v")])
+        new_label = f"v{base_num + 1}"
+    else:
+        branch_children = [v for v in versions if v.get("parent") == from_ver and "-" in v["label"].split("v")[-1]]
+        if branch_children:
+            last_suffix = sorted([v["label"] for v in branch_children])[-1]
+            last_char = last_suffix.split("-")[-1]
+            next_char = chr(ord(last_char) + 1)
+            new_label = f"{from_ver}-{next_char}"
+        else:
+            new_label = f"{from_ver}-a"
 
-            versions.append({
-                "label": new_label,
-                "lyrics": revised,
-                "parent": from_ver,
-                "feedback": req.feedback,
-                "timestamp": datetime.now().isoformat(),
-            })
-            entry["lyrics"] = revised
-            entry["versions"] = versions
-
-            # 旧revisions互換
-            if "revisions" not in entry:
-                entry["revisions"] = []
-            entry["revisions"].append({
-                "feedback": req.feedback,
-                "previous_lyrics": req.current_lyrics,
-                "timestamp": datetime.now().isoformat(),
-            })
-            break
-    save_history(history)
+    new_version = {
+        "label": new_label,
+        "lyrics": revised,
+        "parent": from_ver,
+        "feedback": req.feedback,
+        "timestamp": datetime.now().isoformat(),
+    }
+    db.add_version(req.entry_id, new_version, revised)
 
     return {"lyrics": revised, "version_label": new_label}
 

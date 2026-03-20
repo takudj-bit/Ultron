@@ -5,3 +5,4 @@ openai
 anthropic
 python-dotenv
 PyMuPDF
+psycopg2-binary
