@@ -131,93 +131,62 @@ def _parse_json_from_text(raw: str) -> dict | list | None:
 
 
 # ========================================================================
-# Phase 1: Claude理解 → Perplexityリサーチ → Claude検証
+# Phase 1: ① Claude解析 → ② Perplexity → ③ Claude統合 → ④ 検証
 # ========================================================================
 
-# --- Step ① Claude が企画書を理解・構造化 ---
+# --- Step ① Claude が企画書を解析し、リサーチ指示を自動生成 ---
 
-UNDERSTAND_PROMPT = """\
-あなたは音楽プロデューサーの戦略アシスタントです。
-企画書を読み込み、以下の要素を正確に抽出・整理してください。
-
-出力フォーマット（JSON）:
-{
-  "artists": ["アーティスト名1", "アーティスト名2"],
-  "project_type": "タイアップ / シングル / アルバム / コラボ / etc.",
-  "ip_or_brand": "関連IP・ブランド・番組名（なければnull）",
-  "goal": "この企画の目的（1-2文）",
-  "target": "想定ターゲット層（1-2文）",
-  "constraints": "制約条件・指定事項（納期、ジャンル指定、避けるべきことなど）",
-  "key_context": "その他の重要な文脈情報（3-5文）"
-}
-
-ルール:
-- 企画書に明記されていない項目は推測せず \"不明\" と書く
-- アーティスト名は正式名称で書く
-- JSON のみ出力
-"""
-
-
-def understand_brief(brief: str) -> dict:
-    """Claude Sonnet — 企画書を理解・構造化"""
+def analyze_brief(brief: str) -> tuple[str, str]:
+    """Claude Sonnet — 企画書をプロとして解析し、Perplexityリサーチ指示を生成。
+    Returns: (analysis, research_instruction)
+    """
     response = claude_client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{
-            "role": "user",
-            "content": f"{UNDERSTAND_PROMPT}\n\n【企画書】\n{brief}",
-        }],
-    )
-    raw = response.content[0].text
-    parsed = _parse_json_from_text(raw)
-    if isinstance(parsed, dict):
-        return parsed
-    return {"artists": [], "project_type": "不明", "goal": "不明", "key_context": raw[:500]}
-
-
-# --- Step ② Claude の理解をベースにPerplexityリサーチ指示を生成 ---
-
-RESEARCH_INSTRUCTION_PROMPT = """\
-あなたは音楽業界のリサーチディレクターです。
-Claudeが企画書から抽出した情報をもとに、Perplexity（Web検索AI）への最適なリサーチ指示文を生成してください。
-
-リサーチ指示に必ず含める4項目:
-1. このアーティストは誰か？（経歴、代表曲、市場ポジション、強み）
-2. このアーティストに響いているユーザー層は誰か？（年齢層、感情傾向、SNS行動）
-3. そのユーザー層に響くものは何か？（音楽的特徴、歌詞テーマ、バイラル要素）
-4. このアーティストの課題は何か？（弱み、伸びしろ、競合との差）
-
-ルール:
-- 企画の目的・ターゲットに合わせてリサーチの焦点を調整する
-- IP・ブランドがある場合はそのファン層との交差点も調査指示に含める
-- 具体的な数字（再生数、チャート、フォロワー数）を求める指示にする
-- リサーチ指示文のみ出力（前置き不要）
-- 日本語で出力
-"""
-
-
-def generate_research_instruction(brief: str, understanding: dict) -> str:
-    """Claude Sonnet — Perplexityへのリサーチ指示を生成"""
-    understanding_text = json.dumps(understanding, ensure_ascii=False, indent=2)
-    response = claude_client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3000,
+        max_tokens=5000,
         messages=[{
             "role": "user",
             "content": (
-                f"{RESEARCH_INSTRUCTION_PROMPT}\n\n"
-                f"【Claudeの企画書理解】\n{understanding_text}\n\n"
-                f"【企画書原文】\n{brief[:2000]}\n\n"
-                "この情報をもとに、Perplexityへの最適なリサーチ指示文を生成してください。"
+                "あなたはプロの音楽プロデューサーです。\n"
+                "以下の企画書を読んでください。\n\n"
+                "やること:\n"
+                "1. まず、プロとして企画書を読み解く。何が要件で何が補足か、"
+                "何がこのプロジェクトの核心で何が周辺情報か、常識的に判断して分析する。\n"
+                "2. その分析結果をもとに、Web検索AI（Perplexity）に渡すリサーチ指示を生成する。"
+                "このリサーチ指示は、企画を成功させるために調べるべきことを網羅する。"
+                "アーティスト、ファン層、市場、競合、トレンド、何を調べるかはあなたが判断する。\n\n"
+                "出力フォーマット:\n"
+                "=== 企画書解析 ===\n"
+                "（あなたの分析をここに書く。自由形式。核心を突くこと。）\n\n"
+                "=== リサーチ指示 ===\n"
+                "（Perplexityに渡すリサーチ指示をここに書く。"
+                "具体的な数字や事例を求める指示にする。日本語。）\n\n"
+                f"【企画書】\n{brief}"
             ),
         }],
     )
-    return response.content[0].text
+    raw = response.content[0].text
+
+    # Split analysis and research instruction
+    analysis = raw
+    research_instruction = raw
+    if "=== リサーチ指示 ===" in raw:
+        parts = raw.split("=== リサーチ指示 ===", 1)
+        analysis = parts[0].replace("=== 企画書解析 ===", "").strip()
+        research_instruction = parts[1].strip()
+    elif "リサーチ指示" in raw:
+        # Fallback split
+        idx = raw.index("リサーチ指示")
+        # Find the start of that section header line
+        line_start = raw.rfind("\n", 0, idx)
+        analysis = raw[:line_start].strip() if line_start > 0 else raw[:idx].strip()
+        research_instruction = raw[idx:].strip()
+
+    return analysis, research_instruction
 
 
-# --- Step ③ Perplexity リサーチ実行 ---
+# --- Step ② Perplexity リサーチ実行 ---
 
-def deep_research(research_instruction: str, brief: str) -> str:
+def deep_research(research_instruction: str) -> str:
     """Perplexity research: sonar-deep-research → sonar → Claude fallback"""
     system_prompt = (
         "あなたは音楽業界の戦略リサーチャーです。"
@@ -258,42 +227,57 @@ def deep_research(research_instruction: str, brief: str) -> str:
         raise RuntimeError(f"全リサーチモデルが失敗: {str(e)}")
 
 
-# --- Step ④ Claude が企画書の意図と照合して検証 ---
+# --- Step ③ Claude がリサーチ結果と企画書を統合して分析・まとめ ---
 
-VERIFICATION_PROMPT = """\
-あなたは音楽戦略コンサルタントです。
-
-あなたは最初にこの企画書を読み、以下のように理解しました:
-{understanding}
-
-その理解に基づいてPerplexityにリサーチを依頼し、結果が返ってきました。
-
-以下のタスクを実行してください:
-
-1. 【企画意図との整合性】リサーチ結果が企画書の目的・ターゲットに合致しているか検証
-2. 【信頼性評価】データの裏付けがある点 vs 推測に過ぎない点を区別
-3. 【戦略的発見 TOP3】この企画にとって最も重要な発見を3つ
-4. 【見落とし・ギャップ】企画書の意図に対してリサーチが見落としている視点
-5. 【アクションヒント】企画の目的達成に直結する具体的な次のステップ
-
-文体: 簡潔、戦略的、データドリブン。箇条書きベースで。
-"""
-
-
-def verify_research(brief: str, understanding: dict, research: str) -> str:
-    """Claude Sonnet — 企画書の意図と照合してリサーチ結果を検証"""
-    understanding_text = json.dumps(understanding, ensure_ascii=False, indent=2)
-    prompt = VERIFICATION_PROMPT.replace("{understanding}", understanding_text)
-
+def synthesize(brief: str, analysis: str, research: str) -> str:
+    """Claude Sonnet — 企画書の解析とリサーチ結果を統合し、戦略的にまとめる"""
     response = claude_client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=4000,
+        max_tokens=5000,
         messages=[{
             "role": "user",
             "content": (
-                f"{prompt}\n\n"
-                f"【企画書原文】\n{brief}\n\n"
-                f"【Perplexityリサーチ結果】\n{research}"
+                "あなたはプロの音楽プロデューサーです。\n\n"
+                "あなたは先ほどこの企画書を読み、以下のように解析しました:\n"
+                f"{analysis}\n\n"
+                "その後、Perplexityが以下のリサーチ結果を返しました:\n"
+                f"{research}\n\n"
+                "やること:\n"
+                "企画書の意図とリサーチ結果を統合して、プロデューサーがすぐに使える"
+                "戦略ブリーフィングにまとめてください。\n\n"
+                "- リサーチで裏付けられた企画の強みと機会\n"
+                "- 企画書では見えていなかったがリサーチで明らかになった事実\n"
+                "- 企画を成功させるための重要なインサイト\n"
+                "- 注意すべきリスクや見落とし\n\n"
+                "プロの判断で構成してください。箇条書きベース、簡潔に。\n\n"
+                f"【企画書原文】\n{brief}"
+            ),
+        }],
+    )
+    return response.content[0].text
+
+
+# --- Step ④ 検証 ---
+
+def verify(brief: str, synthesis: str) -> str:
+    """Claude Sonnet — 最終検証。企画書に立ち返り、統合分析の妥当性を確認"""
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=3000,
+        messages=[{
+            "role": "user",
+            "content": (
+                "あなたはプロの音楽プロデューサーのセカンドオピニオン担当です。\n\n"
+                "以下の統合分析が企画書に対して妥当かどうか、最終チェックしてください。\n\n"
+                "チェック項目:\n"
+                "- 企画書の本来の目的から逸れていないか？\n"
+                "- 重要な見落としはないか？\n"
+                "- 分析の論理に飛躍はないか？\n"
+                "- プロデューサーへの提案として実用的か？\n\n"
+                "問題があれば指摘し、なければ「検証OK」と一言添えてください。\n"
+                "簡潔に。長くても5行以内。\n\n"
+                f"【企画書】\n{brief}\n\n"
+                f"【統合分析】\n{synthesis}"
             ),
         }],
     )
@@ -690,22 +674,22 @@ async def analyze(
         return JSONResponse(status_code=400, content={"error": "ファイルまたはテキストを入力してください"})
 
     try:
-        # 1. Title (Claude Haiku)
+        # 0. Title (Claude Haiku)
         title = generate_title(brief)
 
-        # 2. Claude が企画書を理解・構造化
-        understanding = understand_brief(brief)
+        # ① Claude が企画書を解析し、Perplexityリサーチ指示を自動生成
+        analysis, research_instruction = analyze_brief(brief)
 
-        # 3. Claude の理解をベースに Perplexity リサーチ指示を生成
-        research_instruction = generate_research_instruction(brief, understanding)
+        # ② Perplexity リサーチ実行
+        research = deep_research(research_instruction)
 
-        # 4. Perplexity リサーチ実行
-        research = deep_research(research_instruction, brief)
+        # ③ Claude がリサーチ結果と企画書を統合して分析・まとめ
+        synthesis = synthesize(brief, analysis, research)
 
-        # 5. Claude が企画書の意図と照合してリサーチ結果を検証
-        verification = verify_research(brief, understanding, research)
+        # ④ 検証
+        verification = verify(brief, synthesis)
 
-        # 6. Summary (GPT-4o-mini)
+        # Summary for UI cards (GPT-4o-mini)
         summary = generate_summary(research)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": f"分析中にエラー: {str(e)}"})
@@ -722,25 +706,35 @@ async def analyze(
     }
     db.save_project(entry)
 
+    # Build the main analysis content: synthesis + verification
+    main_content = f"{synthesis}\n\n---\n📋 検証: {verification}"
+
     # Save initial messages
     db.save_message(project_id, "user", brief[:500] + ("..." if len(brief) > 500 else ""))
-    analysis_msg = db.save_message(
-        project_id, "assistant", verification,
+    db.save_message(
+        project_id, "assistant", main_content,
         agent="research",
-        metadata={"summary": summary, "model": "perplexity + claude-sonnet"},
+        metadata={
+            "summary": summary,
+            "analysis": analysis,
+            "model": "claude-sonnet + perplexity",
+        },
     )
 
     return {
         "project": {"id": project_id, "title": title, "created_at": now, "brief": brief},
         "research": research,
-        "verification": verification,
         "summary": summary,
         "messages": [
             {"role": "user", "content": brief[:500] + ("..." if len(brief) > 500 else "")},
             {
-                "role": "assistant", "content": verification,
+                "role": "assistant", "content": main_content,
                 "agent": "research",
-                "metadata": {"summary": summary, "model": "perplexity + claude-sonnet"},
+                "metadata": {
+                    "summary": summary,
+                    "analysis": analysis,
+                    "model": "claude-sonnet + perplexity",
+                },
             },
         ],
     }
