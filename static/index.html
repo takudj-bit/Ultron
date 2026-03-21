@@ -143,13 +143,54 @@ body.resizing .resize-handle{pointer-events:auto}
 }
 .summary-card li::before{content:'•';position:absolute;left:0;color:var(--accent)}
 
-/* Thinking indicator */
-.thinking{display:flex;gap:4px;padding:10px 14px;align-self:flex-start}
-.thinking span{width:7px;height:7px;background:var(--accent);border-radius:50%;animation:blink 1.2s infinite}
-.thinking span:nth-child(2){animation-delay:.2s}
-.thinking span:nth-child(3){animation-delay:.4s}
+/* Thinking indicator — legacy (unused, kept for compat) */
+.thinking{display:none}
+
+/* Taskbar — thinking status bar above input */
+.taskbar{
+  display:none;flex-shrink:0;padding:8px 14px;
+  border-top:1px solid var(--border);background:var(--surface);
+  align-items:center;gap:10px;
+}
+.taskbar.active{display:flex}
+.taskbar-character{
+  width:32px;height:32px;flex-shrink:0;position:relative;
+}
+.claude-char{
+  width:32px;height:32px;border-radius:50%;
+  background:linear-gradient(135deg, var(--accent), #c084fc);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;color:#fff;
+  animation:claudePulse 2s ease-in-out infinite;
+  box-shadow:0 0 8px var(--accent-glow);
+  position:relative;overflow:hidden;
+}
+.claude-char::after{
+  content:'';position:absolute;
+  width:6px;height:6px;border-radius:50%;
+  background:#fff;opacity:.6;
+  top:6px;right:8px;
+  animation:claudeThink 1.5s ease-in-out infinite;
+}
+@keyframes claudePulse{
+  0%,100%{transform:scale(1);box-shadow:0 0 8px var(--accent-glow)}
+  50%{transform:scale(1.08);box-shadow:0 0 16px var(--accent-glow),0 0 24px rgba(139,92,246,.15)}
+}
+@keyframes claudeThink{
+  0%,100%{opacity:.3;transform:translateY(0)}
+  50%{opacity:.9;transform:translateY(-2px)}
+}
+.taskbar-content{flex:1;min-width:0}
+.taskbar-status{font-size:.78rem;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.taskbar-detail{font-size:.65rem;color:var(--text-dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.taskbar-dots{display:flex;gap:3px;align-items:center;flex-shrink:0}
+.taskbar-dots span{
+  width:5px;height:5px;background:var(--accent);border-radius:50%;
+  animation:blink 1.2s infinite;
+}
+.taskbar-dots span:nth-child(2){animation-delay:.2s}
+.taskbar-dots span:nth-child(3){animation-delay:.4s}
 @keyframes blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
-.thinking-text{font-size:.75rem;color:var(--text-dim);margin-left:6px;align-self:center}
 
 /* Input bar */
 .input-bar{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface)}
@@ -356,6 +397,16 @@ body.resizing .resize-handle{pointer-events:auto}
         <div><span class="ap-icon" style="background:rgba(245,158,11,.2);color:var(--orange)">🎵</span>「Sunoプロンプト作って」→ GPT-4o</div>
       </div>
     </div>
+  </div>
+  <div class="taskbar" id="taskbar">
+    <div class="taskbar-character">
+      <div class="claude-char">C</div>
+    </div>
+    <div class="taskbar-content">
+      <div class="taskbar-status" id="taskbarStatus">処理中...</div>
+      <div class="taskbar-detail" id="taskbarDetail"></div>
+    </div>
+    <div class="taskbar-dots"><span></span><span></span><span></span></div>
   </div>
   <div class="input-bar">
     <div class="input-bar-inner">
@@ -667,11 +718,36 @@ function renderSummaryHtml(summary) {
 }
 
 function addThinking(text) {
-  const el = document.createElement('div');
-  el.className = 'thinking';
-  el.innerHTML = `<span></span><span></span><span></span><span class="thinking-text">${text}</span>`;
-  chat.appendChild(el); scrollBottom();
-  return el;
+  // Now uses taskbar instead of in-chat indicator
+  showTaskbar(text);
+  return { remove: () => hideTaskbar() };
+}
+
+async function pollJob(jobId) {
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const res = await fetch('/api/analyze/status/' + jobId);
+      const data = await res.json();
+      if (data.status === 'done') return data;
+      if (data.status === 'error' || !res.ok) return { error: data.error || '処理に失敗' };
+      // Update taskbar with current step + detail
+      showTaskbar(data.step, data.detail || '');
+    } catch (e) {
+      // Network error during poll — retry
+    }
+  }
+}
+
+function showTaskbar(status, detail) {
+  const taskbar = $('taskbar');
+  $('taskbarStatus').textContent = status || '処理中...';
+  $('taskbarDetail').textContent = detail || '';
+  taskbar.classList.add('active');
+}
+
+function hideTaskbar() {
+  $('taskbar').classList.remove('active');
 }
 
 function toggleSection(t) {
@@ -748,19 +824,32 @@ async function send() {
 }
 
 async function createProject(text, hasPdf) {
-  const thinkEl = addThinking('🔍 リサーチ＋検証を実行中...（数分かかる場合があります）');
+  showTaskbar('開始中...', 'リサーチ＋検証を実行します');
 
   const fd = new FormData();
   if (hasPdf) fd.append('file', selectedFile); else fd.append('text', text);
   clearFile();
 
   try {
-    const res = await fetch('/api/analyze', { method: 'POST', body: fd });
-    const data = await res.json();
-    thinkEl.remove();
+    // Step 1: Start the job (returns immediately)
+    const startRes = await fetch('/api/analyze', { method: 'POST', body: fd });
+    const startData = await startRes.json();
 
-    if (!res.ok) {
-      addAgentMsg({ content: 'エラー: ' + (data.error || '分析に失敗'), agent: 'research', metadata: {} });
+    if (!startRes.ok) {
+      hideTaskbar();
+      addAgentMsg({ content: 'エラー: ' + (startData.error || '開始に失敗'), agent: 'research', metadata: {} });
+      return;
+    }
+
+    const jobId = startData.job_id;
+
+    // Step 2: Poll for completion
+    const data = await pollJob(jobId);
+
+    hideTaskbar();
+
+    if (data.error) {
+      addAgentMsg({ content: 'エラー: ' + data.error, agent: 'research', metadata: {} });
       return;
     }
 
@@ -778,13 +867,13 @@ async function createProject(text, hasPdf) {
 
     loadHistory();
   } catch (e) {
-    thinkEl.remove();
+    hideTaskbar();
     addAgentMsg({ content: '通信エラー: ' + e.message, agent: 'general', metadata: {} });
   }
 }
 
 async function sendChat(text) {
-  const thinkEl = addThinking('考え中...');
+  showTaskbar('考え中...', 'エージェント応答を生成中');
   clearFile();
 
   try {
@@ -794,7 +883,7 @@ async function sendChat(text) {
       body: JSON.stringify({ project_id: activeId, message: text }),
     });
     const data = await res.json();
-    thinkEl.remove();
+    hideTaskbar();
 
     if (!res.ok) {
       addAgentMsg({ content: 'エラー: ' + (data.error || '処理に失敗'), agent: 'general', metadata: {} });
@@ -809,7 +898,7 @@ async function sendChat(text) {
       updateArtifact(msg.artifact_type, msg.artifact);
     }
   } catch (e) {
-    thinkEl.remove();
+    hideTaskbar();
     addAgentMsg({ content: '通信エラー: ' + e.message, agent: 'general', metadata: {} });
   }
 }

@@ -22,6 +22,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,11 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 import db  # noqa: E402
 
 app = FastAPI(title="Ultron v3 — Agent Chat")
+
+# ========================================================================
+# Async Job Store (in-memory)
+# ========================================================================
+_jobs: dict[str, dict] = {}  # job_id -> {status, step, result, error}
 
 
 @app.on_event("startup")
@@ -682,12 +688,112 @@ def run_general_agent(project: dict, messages: list[dict], artifacts: dict, user
 # API Endpoints
 # ========================================================================
 
+def _run_analyze_job(job_id: str, brief: str):
+    """Background thread for analyze job."""
+    job = _jobs[job_id]
+    try:
+        # 0. Title (Claude Haiku)
+        job["step"] = "タイトル生成中"
+        job["detail"] = "Claude Haiku"
+        title = generate_title(brief)
+
+        # ① Claude が企画書を解析し、Perplexityリサーチ指示を自動生成
+        job["step"] = "企画書を解析中"
+        job["detail"] = "Claude Sonnet → リサーチ指示を生成"
+        analysis, research_instruction = analyze_brief(brief)
+
+        # ② Perplexity リサーチ実行
+        # research_instruction の先頭部分をステータスに表示
+        preview = research_instruction.replace("\n", " ").strip()[:80]
+        job["step"] = "リサーチ実行中"
+        job["detail"] = preview
+        research = deep_research(research_instruction)
+
+        # ③ Claude がリサーチ結果と企画書を統合して分析・まとめ
+        job["step"] = "分析を統合中"
+        job["detail"] = "企画書 × リサーチ結果を統合"
+        synthesis = synthesize(brief, analysis, research)
+
+        # ④ 検証 → 不十分なら追加リサーチして再統合（最大1回リトライ）
+        job["step"] = "検証中"
+        job["detail"] = "Claude Sonnet が分析を検証"
+        verification_result = verify(brief, synthesis)
+
+        if not verification_result["pass"] and verification_result["additional_research"]:
+            add_preview = verification_result["additional_research"].replace("\n", " ").strip()[:80]
+            job["step"] = "追加リサーチ実行中"
+            job["detail"] = add_preview
+            additional_research = deep_research(verification_result["additional_research"])
+            research = research + "\n\n--- 追加リサーチ ---\n\n" + additional_research
+
+            job["step"] = "再統合中"
+            job["detail"] = "追加リサーチを含めて再統合"
+            synthesis = synthesize(brief, analysis, research)
+
+            verification_result = verify(brief, synthesis)
+
+        verification = verification_result["comment"]
+
+        # Summary for UI cards
+        job["step"] = "サマリー生成中"
+        job["detail"] = "UIカード用サマリーを生成"
+        summary = generate_summary(research)
+
+        # Save project
+        now = datetime.now().isoformat()
+        project_id = str(uuid.uuid4())
+        entry = {
+            "id": project_id,
+            "title": title,
+            "created_at": now,
+            "brief": brief,
+            "research": research,
+        }
+        db.save_project(entry)
+
+        main_content = f"{synthesis}\n\n---\n📋 検証: {verification}"
+
+        db.save_message(project_id, "user", brief[:500] + ("..." if len(brief) > 500 else ""))
+        db.save_message(
+            project_id, "assistant", main_content,
+            agent="research",
+            metadata={
+                "summary": summary,
+                "analysis": analysis,
+                "model": "claude-sonnet + perplexity",
+            },
+        )
+
+        job["status"] = "done"
+        job["step"] = "完了"
+        job["result"] = {
+            "project": {"id": project_id, "title": title, "created_at": now, "brief": brief},
+            "research": research,
+            "summary": summary,
+            "messages": [
+                {"role": "user", "content": brief[:500] + ("..." if len(brief) > 500 else "")},
+                {
+                    "role": "assistant", "content": main_content,
+                    "agent": "research",
+                    "metadata": {
+                        "summary": summary,
+                        "analysis": analysis,
+                        "model": "claude-sonnet + perplexity",
+                    },
+                },
+            ],
+        }
+    except Exception as e:
+        job["status"] = "error"
+        job["error"] = str(e)
+
+
 @app.post("/api/analyze")
 async def analyze(
     file: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
 ):
-    """Phase 1: 企画書 → リサーチ + 検証 + サマリー"""
+    """Phase 1: ジョブを開始して即座にjob_idを返す"""
     brief = None
     if file and file.filename:
         file_bytes = await file.read()
@@ -701,84 +807,32 @@ async def analyze(
     if not brief:
         return JSONResponse(status_code=400, content={"error": "ファイルまたはテキストを入力してください"})
 
-    try:
-        # 0. Title (Claude Haiku)
-        title = generate_title(brief)
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running", "step": "開始中", "detail": "", "result": None, "error": None}
 
-        # ① Claude が企画書を解析し、Perplexityリサーチ指示を自動生成
-        analysis, research_instruction = analyze_brief(brief)
+    thread = threading.Thread(target=_run_analyze_job, args=(job_id, brief), daemon=True)
+    thread.start()
 
-        # ② Perplexity リサーチ実行
-        research = deep_research(research_instruction)
+    return {"job_id": job_id}
 
-        # ③ Claude がリサーチ結果と企画書を統合して分析・まとめ
-        synthesis = synthesize(brief, analysis, research)
 
-        # ④ 検証 → 不十分なら追加リサーチして再統合（最大1回リトライ）
-        verification_result = verify(brief, synthesis)
+@app.get("/api/analyze/status/{job_id}")
+async def analyze_status(job_id: str):
+    """ジョブの進捗を返す（ポーリング用）"""
+    job = _jobs.get(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "ジョブが見つかりません"})
 
-        if not verification_result["pass"] and verification_result["additional_research"]:
-            # 追加リサーチ実行
-            additional_research = deep_research(verification_result["additional_research"])
-            research = research + "\n\n--- 追加リサーチ ---\n\n" + additional_research
-
-            # 再統合（追加リサーチを含めて）
-            synthesis = synthesize(brief, analysis, research)
-
-            # 再検証
-            verification_result = verify(brief, synthesis)
-
-        verification = verification_result["comment"]
-
-        # Summary for UI cards (GPT-4o-mini)
-        summary = generate_summary(research)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": f"分析中にエラー: {str(e)}"})
-
-    # Save project
-    now = datetime.now().isoformat()
-    project_id = str(uuid.uuid4())
-    entry = {
-        "id": project_id,
-        "title": title,
-        "created_at": now,
-        "brief": brief,
-        "research": research,
-    }
-    db.save_project(entry)
-
-    # Build the main analysis content: synthesis + verification
-    main_content = f"{synthesis}\n\n---\n📋 検証: {verification}"
-
-    # Save initial messages
-    db.save_message(project_id, "user", brief[:500] + ("..." if len(brief) > 500 else ""))
-    db.save_message(
-        project_id, "assistant", main_content,
-        agent="research",
-        metadata={
-            "summary": summary,
-            "analysis": analysis,
-            "model": "claude-sonnet + perplexity",
-        },
-    )
-
-    return {
-        "project": {"id": project_id, "title": title, "created_at": now, "brief": brief},
-        "research": research,
-        "summary": summary,
-        "messages": [
-            {"role": "user", "content": brief[:500] + ("..." if len(brief) > 500 else "")},
-            {
-                "role": "assistant", "content": main_content,
-                "agent": "research",
-                "metadata": {
-                    "summary": summary,
-                    "analysis": analysis,
-                    "model": "claude-sonnet + perplexity",
-                },
-            },
-        ],
-    }
+    if job["status"] == "done":
+        result = job["result"]
+        del _jobs[job_id]  # cleanup
+        return {"status": "done", "step": job["step"], **result}
+    elif job["status"] == "error":
+        error = job["error"]
+        del _jobs[job_id]
+        return JSONResponse(status_code=500, content={"status": "error", "error": error})
+    else:
+        return {"status": "running", "step": job["step"], "detail": job.get("detail", "")}
 
 
 class ChatRequest(BaseModel):
